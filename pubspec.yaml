@@ -36,6 +36,8 @@ dependencies:
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
   android_alarm_manager_plus: ^4.0.4
+  flutter_ringtone_player: ^4.0.0+3
+  permission_handler: ^11.3.1
 
 dev_dependencies:
   flutter_test:
@@ -53,7 +55,8 @@ dev_dependencies:
 
 # The following section is specific to Flutter packages.
 flutter:
-
+  assets:
+    - assets/
   # The following line ensures that the Material Icons font is
   # included with your application, so that you can use the icons in
   # the material Icons class.
