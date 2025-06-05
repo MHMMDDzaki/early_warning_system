@@ -1,13 +1,19 @@
 class ModelAlarm {
- String message;
- String timestamp;
+  final String timestamp;
+  final double rsamValue;
 
- ModelAlarm({required this.message, required this.timestamp});
+  ModelAlarm({
+    required this.timestamp,
+    required this.rsamValue,
+  });
 
- factory ModelAlarm.fromJson(Map<String, dynamic> json) {
-   return ModelAlarm(
-     message: json['message'],
-     timestamp: json['timestamp']
-   );
- }
+  factory ModelAlarm.fromJson(Map<String, dynamic> json) {
+    return ModelAlarm(
+      timestamp: json['Timestamp'] ?? '',
+      rsamValue: (json['RSAM'] as num?)?.toDouble() ?? 0.0,
+    );
+  }
+
+  @override
+  String toString() => '$timestamp,${rsamValue.toStringAsFixed(2)}';
 }

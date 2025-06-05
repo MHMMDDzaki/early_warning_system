@@ -1,24 +1,44 @@
 import 'package:android_alarm_manager_plus/android_alarm_manager_plus.dart';
-import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
 import 'package:kiosk_mode/kiosk_mode.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:audioplayers/audioplayers.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import '../model/ModelAlarm.dart';
 
 class ControllerAlarm {
   ModelAlarm? _modelAlarm;
+  String? audioUrlFromApi;
+  final baseUrl = dotenv.env['BASE_URL'];
+  final configId = dotenv.env['CONFIG_ID'];
+  AudioPlayer player = AudioPlayer();
 
-  startAlarm() {
-    print('alarm start');
-    FlutterRingtonePlayer().play(
-      fromAsset: "assets/duarr.mp3",
-      looping: true,
-    );
+  Future<void> init() async {
+    await getTriggerValues();
+  }
+
+  startAlarm() async {
+    if (audioUrlFromApi == null || audioUrlFromApi!.isEmpty) {
+      print("Error: audioUrl belum tersedia!");
+      return;
+    }
+
+    print('Memutar audio dari: $audioUrlFromApi');
+    try {
+      await player.play(UrlSource(audioUrlFromApi!));
+      player.setReleaseMode(ReleaseMode.loop);
+    } catch (e) {
+      print("Gagal memutar audio: $e");
+    }
   }
 
   stopAlarm() {
     print('alarm stop');
-    FlutterRingtonePlayer().stop();
+    player.stop();
+  }
+
+  void dispose() {
+    player.dispose();
   }
 
   Future<void> scheduleAlarm() async {
@@ -59,19 +79,81 @@ class ControllerAlarm {
     }
   }
 
-  Future<String> fetchAlarmStatus() async {
+  Future<double> fetchAlarmStatus(int maxRsam) async {
     try {
-      // final response = await http.get(Uri.parse('http://192.168.0.124:3000/api/fine'));
-      final response = await http.get(Uri.parse('http://192.168.1.68:3000/api/trouble'));
+      final response = await http.get(
+        // Uri.parse('$baseUrl/api/rsam-latest?maxRsam=$maxRsam'),
+        Uri.parse('$baseUrl/api/rsamv2-latest'),
+        headers: {'Accept': 'application/json'},
+      );
+
       if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        _modelAlarm = ModelAlarm.fromJson(data);
-        return double.parse(_modelAlarm!.message) < 350 ? 'aman' : 'ga aman';
+        final jsonData = jsonDecode(response.body);
+        _modelAlarm = ModelAlarm.fromJson(jsonData);
+        return _modelAlarm!.rsamValue;
+      }
+      throw Exception('HTTP ${response.statusCode}');
+    } catch (e) {
+      print('Fetch error: $e');
+      throw Exception('Failed to fetch RSAM: $e');
+    }
+  }
+
+  Future<Map<String, dynamic>> getTriggerValues() async {
+    try {
+      final response = await http.get(
+        Uri.parse('$baseUrl/api/rsam-config/$configId'),
+      );
+
+      if (response.statusCode == 200) {
+        final jsonData = jsonDecode(response.body);
+
+        audioUrlFromApi = jsonData['audio_url'];
+
+        return {
+          'triggerOn': jsonData['trigger_on'] as int,
+          'triggerOff': jsonData['trigger_off'] as int,
+          'audioUrl': jsonData['audio_url'],
+        };
+      }
+
+      throw Exception('Failed to load config. Status: ${response.statusCode}');
+
+    } catch (e) {
+      print('Error getting trigger values: $e');
+      return {
+        'triggerOn': 26000,  // Default sesuai contoh API
+        'triggerOff': 500,
+        'audioUrl': null,
+      };
+    }
+  }
+
+  Future<List<dynamic>> fetchChartDataRange(String apiRange) async {
+    final String apiUrl = '$baseUrl/api/rsamv2-latest/range?range=$apiRange';
+    print('Fetching chart data from: $apiUrl');
+    try {
+      final response = await http.get(
+        Uri.parse(apiUrl),
+        headers: {'Accept': 'application/json'},
+      );
+
+      if (response.statusCode == 200) {
+        final decodedBody = jsonDecode(response.body);
+
+        // Ekstrak array dari properti 'data'
+        if (decodedBody is Map<String, dynamic> && decodedBody.containsKey('data')) {
+          return decodedBody['data'] as List<dynamic>;
+        } else {
+          throw Exception('Unexpected response format: $decodedBody');
+        }
       } else {
-        throw Exception('Failed to load fine data');
+        print('Failed to load chart data. Status: ${response.statusCode}');
+        throw Exception('HTTP ${response.statusCode}');
       }
     } catch (e) {
-      throw Exception('Error: $e');
+      print('Error fetching chart data: $e');
+      throw Exception('Failed to fetch chart data: $e');
     }
   }
 }
