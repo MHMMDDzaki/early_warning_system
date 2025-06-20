@@ -1,4 +1,5 @@
 import 'package:android_alarm_manager_plus/android_alarm_manager_plus.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:kiosk_mode/kiosk_mode.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:audioplayers/audioplayers.dart';
@@ -19,21 +20,17 @@ class ControllerAlarm {
 
   startAlarm() async {
     if (audioUrlFromApi == null || audioUrlFromApi!.isEmpty) {
-      print("Error: audioUrl belum tersedia!");
       return;
     }
-
-    print('Memutar audio dari: $audioUrlFromApi');
     try {
       await player.play(UrlSource(audioUrlFromApi!));
       player.setReleaseMode(ReleaseMode.loop);
     } catch (e) {
-      print("Gagal memutar audio: $e");
+      debugPrint("Gagal memutar audio: $e");
     }
   }
 
   stopAlarm() {
-    print('alarm stop');
     player.stop();
   }
 
@@ -67,7 +64,7 @@ class ControllerAlarm {
     try {
       await startKioskMode();
     } catch (e) {
-      print("Error entering kiosk mode: $e");
+      debugPrint("Error entering kiosk mode: $e");
     }
   }
 
@@ -75,7 +72,7 @@ class ControllerAlarm {
     try {
       await stopKioskMode();
     } catch (e) {
-      print("Error exiting kiosk mode: $e");
+      debugPrint("Error exiting kiosk mode: $e");
     }
   }
 
@@ -94,7 +91,6 @@ class ControllerAlarm {
       }
       throw Exception('HTTP ${response.statusCode}');
     } catch (e) {
-      print('Fetch error: $e');
       throw Exception('Failed to fetch RSAM: $e');
     }
   }
@@ -120,7 +116,6 @@ class ControllerAlarm {
       throw Exception('Failed to load config. Status: ${response.statusCode}');
 
     } catch (e) {
-      print('Error getting trigger values: $e');
       return {
         'triggerOn': 26000,  // Default sesuai contoh API
         'triggerOff': 500,
@@ -131,7 +126,6 @@ class ControllerAlarm {
 
   Future<List<dynamic>> fetchChartDataRange(String apiRange) async {
     final String apiUrl = '$baseUrl/api/rsamv2-latest/range?range=$apiRange';
-    print('Fetching chart data from: $apiUrl');
     try {
       final response = await http.get(
         Uri.parse(apiUrl),
@@ -148,11 +142,9 @@ class ControllerAlarm {
           throw Exception('Unexpected response format: $decodedBody');
         }
       } else {
-        print('Failed to load chart data. Status: ${response.statusCode}');
         throw Exception('HTTP ${response.statusCode}');
       }
     } catch (e) {
-      print('Error fetching chart data: $e');
       throw Exception('Failed to fetch chart data: $e');
     }
   }

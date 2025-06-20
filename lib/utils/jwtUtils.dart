@@ -14,7 +14,6 @@ Map<String, dynamic>? _decodePayload(String token) {
     String decodedPayload = utf8.decode(base64Url.decode(normalizedSource));
     return json.decode(decodedPayload) as Map<String, dynamic>;
   } catch (e) {
-    print("Error decoding JWT payload: $e");
     return null;
   }
 }
@@ -32,8 +31,6 @@ bool isTokenExpired(String token) {
 
     return expirationTimeInSeconds < currentTimeInSeconds;
   } catch (e) {
-    print("Error parsing expiration time: $e");
-    // Jika ada error saat parsing, anggap expired
     return true;
   }
 }

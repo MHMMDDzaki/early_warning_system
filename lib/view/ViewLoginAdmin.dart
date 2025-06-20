@@ -5,7 +5,10 @@ import '../controller/ControllerLogin.dart';
 import '../model/ModelLogin.dart';
 
 class ViewloginAdmin extends StatefulWidget {
+  const ViewloginAdmin({super.key});
+
   @override
+  // ignore: library_private_types_in_public_api
   _ViewloginAdminState createState() => _ViewloginAdminState();
 }
 
@@ -17,9 +20,9 @@ class _ViewloginAdminState extends State<ViewloginAdmin> {
   late final Controllerlogin _controller;
 
   final gradientColors = [
-    Color(0xFF665C3C),
-    Color(0xFF1E1E1E),
-    Color(0xFF1E1E1E)
+    const Color(0xFF665C3C),
+    const Color(0xFF1E1E1E),
+    const Color(0xFF1E1E1E)
   ];
 
   @override
@@ -35,8 +38,8 @@ class _ViewloginAdminState extends State<ViewloginAdmin> {
     final token = prefs.getString('token');
 
     if (token != null && token.isNotEmpty) {
-      // Sudah login → langsung ke admin
-      Navigator.pushReplacementNamed(context, '/admin-page');
+      if(!mounted) return;
+      Navigator.pushNamedAndRemoveUntil(context, '/admin-page', (route) => false);
     }
   }
 
@@ -55,7 +58,7 @@ class _ViewloginAdminState extends State<ViewloginAdmin> {
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
           colors: gradientColors,
-          stops: [0.2, 0.6, 1.0],
+          stops: const [0.2, 0.6, 1.0],
         ),
       ),
       child: Scaffold(
@@ -66,14 +69,14 @@ class _ViewloginAdminState extends State<ViewloginAdmin> {
           toolbarHeight: 50,
           actions: [
             Padding(
-              padding: EdgeInsets.only(right: 10, top: 10),
+              padding: const EdgeInsets.only(right: 10, top: 10),
               child: IconButton(
                 onPressed: () {
                   Navigator.pushNamedAndRemoveUntil(
                       context, '/', (route) => false);
                 },
                 icon: const Icon(Icons.home_filled, size: 30.0),
-                color: Color(0xFFF2C94C),
+                color: const Color(0xFFF2C94C),
               ),
             )
           ],
@@ -88,16 +91,19 @@ class _ViewloginAdminState extends State<ViewloginAdmin> {
                   'assets/icons/user_octagon.svg',
                   height: 140,
                   width: 140,
-                  color: Color(0xFFF2C94C),
+                  colorFilter: const ColorFilter.mode(
+                    Color(0xFFF2C94C),
+                    BlendMode.srcIn,
+                  ),
                 ),
-                SizedBox(height: 70),
+                const SizedBox(height: 70),
                 // _buildLabel('Username'),
                 _buildTextField(
                   controller: _usernameController,
                   label: 'Username',
                   icon: Icons.person,
                 ),
-                SizedBox(height: 55),
+                const SizedBox(height: 55),
                 // _buildLabel('Password'),
                 _buildTextField(
                   controller: _passwordController,
@@ -105,14 +111,31 @@ class _ViewloginAdminState extends State<ViewloginAdmin> {
                   icon: Icons.lock,
                   isPassword: true,
                 ),
-                SizedBox(height: 60),
+                const SizedBox(height: 60),
                 _buildLoginButton(),
-                TextButton(
-                  onPressed: () {
-                    Navigator.pushNamed(context, '/register');
-                  },
-                  child: Text('Belum punya akun? Registrasi di sini'),
-                )
+                const SizedBox(height: 60),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    TextButton(
+                      onPressed: () {
+                        Navigator.pushNamedAndRemoveUntil(context, '/register', (route) => false);
+                      },
+                      child: const Text('Sign In', style: TextStyle(color: Color(0xFFF2C94C), fontSize: 16),),
+                    ),
+                    const Text('|', style: TextStyle(color: Color(0xFFF2C94C), fontWeight: FontWeight.bold, fontSize: 20),),
+                    TextButton(
+                      onPressed: () {
+                        Navigator.pushNamedAndRemoveUntil(context, '/forgot-password', (route) => false);
+                      },
+                      child: const Text(
+                        'Forgot Password',
+                        style:
+                        TextStyle(color: Color(0xFFF2C94C), fontSize: 16), // Sesuaikan style
+                      ),
+                    ),
+                  ],
+                ),
               ],
             ),
           ),
@@ -130,12 +153,12 @@ class _ViewloginAdminState extends State<ViewloginAdmin> {
     return TextField(
       controller: controller,
       obscureText: isPassword ? _obscurePassword : false,
-      style: TextStyle(color: Colors.white), // teks input warna putih
+      style: const TextStyle(color: Colors.white), // teks input warna putih
       decoration: InputDecoration(
         labelText: label,
-        labelStyle: TextStyle(color: Colors.white70), // label warna terang
+        labelStyle: const TextStyle(color: Colors.white70), // label warna terang
         hintText: 'Masukkan $label',
-        hintStyle: TextStyle(color: Colors.white54), // placeholder agak pudar
+        hintStyle: const TextStyle(color: Colors.white54), // placeholder agak pudar
         filled: true,
         fillColor: Colors.black, // background field
         prefixIcon: Icon(icon, color: Colors.white70),
@@ -153,15 +176,15 @@ class _ViewloginAdminState extends State<ViewloginAdmin> {
               )
             : null,
         enabledBorder: OutlineInputBorder(
-          borderSide: BorderSide(color: Colors.white),
+          borderSide: const BorderSide(color: Colors.white),
           borderRadius: BorderRadius.circular(6.0),
         ),
         focusedBorder: OutlineInputBorder(
-          borderSide: BorderSide(color: Color(0xFFF2C94C), width: 2),
+          borderSide: const BorderSide(color: Color(0xFFF2C94C), width: 2),
           borderRadius: BorderRadius.circular(6.0),
         ),
         border: OutlineInputBorder(
-          borderSide: BorderSide(color: Colors.white),
+          borderSide: const BorderSide(color: Colors.white),
           borderRadius: BorderRadius.circular(6.0),
         ),
       ),
@@ -173,8 +196,8 @@ class _ViewloginAdminState extends State<ViewloginAdmin> {
       width: double.infinity,
       child: ElevatedButton(
         style: ElevatedButton.styleFrom(
-          backgroundColor: Color(0xFFF2C94C),
-          padding: EdgeInsets.symmetric(vertical: 4),
+          backgroundColor: const Color(0xFFF2C94C),
+          padding: const EdgeInsets.symmetric(vertical: 4),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(6.0),
           ),
@@ -184,7 +207,7 @@ class _ViewloginAdminState extends State<ViewloginAdmin> {
           _model.password = _passwordController.text;
           _controller.handleLogin(context);
         },
-        child: Text(
+        child: const Text(
           'LOGIN',
           style: TextStyle(
             fontSize: 30,

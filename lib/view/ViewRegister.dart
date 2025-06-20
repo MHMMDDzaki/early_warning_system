@@ -1,11 +1,12 @@
-// lib/view/ViewRegister.dart
-
 import 'package:flutter/material.dart';
-import '../controller/ControllerRegister.dart'; // Sesuaikan path
-import '../model/ModelRegister.dart';      // Sesuaikan path
+import '../controller/ControllerRegister.dart';
+import '../model/ModelRegister.dart';
 
 class ViewRegister extends StatefulWidget {
+  const ViewRegister({super.key});
+
   @override
+  // ignore: library_private_types_in_public_api
   _ViewRegisterState createState() => _ViewRegisterState();
 }
 
@@ -35,6 +36,52 @@ class _ViewRegisterState extends State<ViewRegister> {
     super.dispose();
   }
 
+  Future<void> _showAlertDialog(BuildContext context, String title, String message, {bool isSuccess = false, VoidCallback? onSuccessDismiss}) async {
+    return showDialog<void>(
+      context: context,
+      barrierDismissible: false, // User must tap button to dismiss
+      builder: (BuildContext dialogContext) {
+        return AlertDialog(
+          backgroundColor: Colors.black,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12.0), // Atur radius sesuai keinginan
+            side: const BorderSide(color: Colors.yellow, width: 2.0),
+          ),
+          title: Text(
+            title,
+            style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.bold,),
+            textAlign: TextAlign.center,
+          ),
+          content: Text(
+            message,
+            style: const TextStyle(color: Colors.white70),
+            textAlign: TextAlign.center,
+          ),
+          actions: <Widget>[
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.yellow,
+                foregroundColor: Colors.black,
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8.0),
+                ),
+                textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold,),
+              ),
+              child: const Text('OK'),
+              onPressed: () {
+                Navigator.of(dialogContext).pop(); // Dismiss the dialog
+                if (isSuccess && onSuccessDismiss != null) {
+                  onSuccessDismiss(); // Call additional action if provided
+                }
+              },
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   Future<void> _submitRegistration() async {
     if (_formKey.currentState!.validate()) {
       setState(() {
@@ -48,21 +95,29 @@ class _ViewRegisterState extends State<ViewRegister> {
 
       try {
         await _controllerRegister.registerUser(registrationData);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Registrasi berhasil! Silakan login.'),
-            backgroundColor: Colors.green,
-          ),
-        );
+        if (mounted) { // Pastikan widget masih ada di tree
+          await _showAlertDialog(
+            context,
+            'Registrasi Berhasil',
+            'Akun Anda telah berhasil dibuat. Silakan login.',
+            isSuccess: true,
+            onSuccessDismiss: () {
+              if (mounted) {
+                Navigator.pushNamedAndRemoveUntil(context, '/login', (route) => false);
+              }
+            },
+          );
+        }
         // Arahkan ke halaman login setelah registrasi berhasil
-        Navigator.pushReplacementNamed(context, '/login');
+        // Navigator.pushNamedAndRemoveUntil(context, '/login', (route) => false);
       } catch (e) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Registrasi gagal: ${e.toString().replaceFirst("Exception: ", "")}'),
-            backgroundColor: Colors.red,
-          ),
-        );
+        if (mounted) { // Pastikan widget masih ada di tree
+          await _showAlertDialog(
+            context,
+            'Registrasi Gagal',
+            e.toString().replaceFirst("Exception: ", ""), // Menghilangkan "Exception: "
+          );
+        }
       } finally {
         if (mounted) {
           setState(() {
@@ -77,21 +132,21 @@ class _ViewRegisterState extends State<ViewRegister> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('Registrasi Akun'),
-        backgroundColor: Color(0xFF1E1E1E), // Warna gelap seperti di ViewDrive
+        title: const Text('Registrasi Akun'),
+        backgroundColor: const Color(0xFF1E1E1E), // Warna gelap seperti di ViewDrive
       ),
       // Anda bisa menggunakan gradient yang sama jika mau
-      backgroundColor: Color(0xFF1E1E1E), // Background gelap
+      backgroundColor: const Color(0xFF1E1E1E), // Background gelap
       body: Center(
         child: SingleChildScrollView(
-          padding: EdgeInsets.all(24.0),
+          padding: const EdgeInsets.all(24.0),
           child: Form(
             key: _formKey,
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: <Widget>[
-                Text(
+                const Text(
                   'Buat Akun Baru',
                   textAlign: TextAlign.center,
                   style: TextStyle(
@@ -100,29 +155,29 @@ class _ViewRegisterState extends State<ViewRegister> {
                     color: Colors.white,
                   ),
                 ),
-                SizedBox(height: 40),
+                const SizedBox(height: 40),
                 // Username
                 TextFormField(
                   controller: _usernameController,
-                  style: TextStyle(color: Colors.white),
+                  style: const TextStyle(color: Colors.white),
                   decoration: InputDecoration(
                     labelText: 'Username',
-                    labelStyle: TextStyle(color: Colors.white70),
-                    prefixIcon: Icon(Icons.person, color: Colors.white70),
+                    labelStyle: const TextStyle(color: Colors.white70),
+                    prefixIcon: const Icon(Icons.person, color: Colors.white70),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(8.0),
-                      borderSide: BorderSide(color: Colors.white),
+                      borderSide: const BorderSide(color: Colors.white),
                     ),
                     enabledBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(8.0),
-                      borderSide: BorderSide(color: Colors.white70),
+                      borderSide: const BorderSide(color: Colors.white70),
                     ),
                     focusedBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(8.0),
-                      borderSide: BorderSide(color: Color(0xFFF2C94C)), // Warna aksen
+                      borderSide: const BorderSide(color: Color(0xFFF2C94C)), // Warna aksen
                     ),
                     filled: true,
-                    fillColor: Colors.black.withOpacity(0.3),
+                    fillColor: Colors.black.withAlpha((255 * 0.3).round()),
                   ),
                   validator: (value) {
                     if (value == null || value.isEmpty) {
@@ -134,29 +189,29 @@ class _ViewRegisterState extends State<ViewRegister> {
                     return null;
                   },
                 ),
-                SizedBox(height: 20),
+                const SizedBox(height: 20),
                 // Password
                 TextFormField(
                   controller: _passwordController,
-                  style: TextStyle(color: Colors.white),
+                  style: const TextStyle(color: Colors.white),
                   decoration: InputDecoration(
                     labelText: 'Password',
-                    labelStyle: TextStyle(color: Colors.white70),
-                    prefixIcon: Icon(Icons.lock, color: Colors.white70),
+                    labelStyle: const TextStyle(color: Colors.white70),
+                    prefixIcon: const Icon(Icons.lock, color: Colors.white70),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(8.0),
-                      borderSide: BorderSide(color: Colors.white),
+                      borderSide: const BorderSide(color: Colors.white),
                     ),
                     enabledBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(8.0),
-                      borderSide: BorderSide(color: Colors.white70),
+                      borderSide: const BorderSide(color: Colors.white70),
                     ),
                     focusedBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(8.0),
-                      borderSide: BorderSide(color: Color(0xFFF2C94C)),
+                      borderSide: const BorderSide(color: Color(0xFFF2C94C)),
                     ),
                     filled: true,
-                    fillColor: Colors.black.withOpacity(0.3),
+                    fillColor: Colors.black.withAlpha((255 * 0.3).round()),
                     suffixIcon: IconButton(
                       icon: Icon(
                         _passwordVisible ? Icons.visibility : Icons.visibility_off,
@@ -180,29 +235,29 @@ class _ViewRegisterState extends State<ViewRegister> {
                     return null;
                   },
                 ),
-                SizedBox(height: 20),
+                const SizedBox(height: 20),
                 // Confirm Password
                 TextFormField(
                   controller: _confirmPasswordController,
-                  style: TextStyle(color: Colors.white),
+                  style: const TextStyle(color: Colors.white),
                   decoration: InputDecoration(
                     labelText: 'Konfirmasi Password',
-                    labelStyle: TextStyle(color: Colors.white70),
-                    prefixIcon: Icon(Icons.lock_outline, color: Colors.white70),
+                    labelStyle: const TextStyle(color: Colors.white70),
+                    prefixIcon: const Icon(Icons.lock_outline, color: Colors.white70),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(8.0),
-                      borderSide: BorderSide(color: Colors.white),
+                      borderSide: const BorderSide(color: Colors.white),
                     ),
                     enabledBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(8.0),
-                      borderSide: BorderSide(color: Colors.white70),
+                      borderSide: const BorderSide(color: Colors.white70),
                     ),
                     focusedBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(8.0),
-                      borderSide: BorderSide(color: Color(0xFFF2C94C)),
+                      borderSide: const BorderSide(color: Color(0xFFF2C94C)),
                     ),
                     filled: true,
-                    fillColor: Colors.black.withOpacity(0.3),
+                    fillColor: Colors.black.withAlpha((255 * 0.3).round()),
                     suffixIcon: IconButton(
                       icon: Icon(
                         _confirmPasswordVisible ? Icons.visibility : Icons.visibility_off,
@@ -226,27 +281,27 @@ class _ViewRegisterState extends State<ViewRegister> {
                     return null;
                   },
                 ),
-                SizedBox(height: 30),
+                const SizedBox(height: 30),
                 _isLoading
-                    ? Center(child: CircularProgressIndicator(color: Color(0xFFF2C94C)))
+                    ? const Center(child: CircularProgressIndicator(color: Color(0xFFF2C94C)))
                     : ElevatedButton(
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: Color(0xFFF2C94C), // Warna aksen
-                    padding: EdgeInsets.symmetric(vertical: 16.0),
-                    textStyle: TextStyle(fontSize: 18, color: Colors.black),
+                    backgroundColor: const Color(0xFFF2C94C), // Warna aksen
+                    padding: const EdgeInsets.symmetric(vertical: 16.0),
+                    textStyle: const TextStyle(fontSize: 18, color: Colors.black),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(8.0),
                     ),
                   ),
                   onPressed: _submitRegistration,
-                  child: Text('REGISTRASI', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+                  child: const Text('REGISTRASI', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
                 ),
-                SizedBox(height: 20),
+                const SizedBox(height: 20),
                 TextButton(
                   onPressed: () {
                     Navigator.pushReplacementNamed(context, '/login');
                   },
-                  child: Text(
+                  child: const Text(
                     'Sudah punya akun? Login di sini',
                     style: TextStyle(color: Color(0xFFF2C94C)),
                   ),

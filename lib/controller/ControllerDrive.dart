@@ -14,11 +14,10 @@ class Controllerdrive {
 
   Future<ModelDrive> getTriggerValues() async {
     final response =
-        await http.get(Uri.parse('${baseUrl}/api/rsam-config/${configId}'));
+        await http.get(Uri.parse('$baseUrl/api/rsam-config/$configId'));
 
     if (response.statusCode == 200) {
       final data = json.decode(response.body);
-      print(data);
       return ModelDrive.fromMap(data);
     } else {
       throw Exception('Gagal mengambil trigger dari API lokal');
@@ -29,19 +28,14 @@ class Controllerdrive {
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('token');
 
-    print(token);
-
     final response = await http.patch(
-      Uri.parse('${baseUrl}/api/rsam-config/${configId}'),
+      Uri.parse('$baseUrl/api/rsam-config/$configId'),
       headers: {
         'Authorization': 'Bearer $token',
         'Content-Type': 'application/json'
       },
       body: json.encode(trigger.toMap()),
     );
-
-    print('Response status: ${response.statusCode}');
-    print('Response data: ${response.body}');
 
     if (response.statusCode != 200) {
       throw Exception('Gagal update trigger ke API lokal');
@@ -58,7 +52,6 @@ class Controllerdrive {
 
     Dio dio = Dio();
     String fileName = basename(file.path);
-    print('ini FE (Dio): ' + file.path);
 
     FormData formData = FormData.fromMap({
       'mp3_file': await MultipartFile.fromFile(
@@ -70,7 +63,7 @@ class Controllerdrive {
 
     try {
       Response response = await dio.post(
-        '${baseUrl}/api/files/upload-mp3',
+        '$baseUrl/api/files/upload-mp3',
         data: formData,
         options: Options(
           headers: {
@@ -78,18 +71,14 @@ class Controllerdrive {
             // Dio akan mengatur 'Content-Type': 'multipart/form-data' secara otomatis
           },
         ),
-        onSendProgress: (int sent, int total) {
-          print('Progress: ${(sent / total * 100).toStringAsFixed(2)}%');
-        },
+        // onSendProgress: (int sent, int total) {
+        //   print('Progress: ${(sent / total * 100).toStringAsFixed(2)}%');
+        // },
       );
 
       // API Anda mengembalikan 200 atau 201 untuk sukses
       if (response.statusCode == 200 || response.statusCode == 201) {
-        print('File berhasil diunggah: ${response.data}');
-        // Asumsikan backend mengembalikan JSON seperti:
-        // { "success": true, "fileId": "...", "fileUrl": "...", "fileName": "..." }
         if (response.data is Map<String, dynamic>) {
-          // Kembalikan detail file yang relevan
           return {
             'fileUrl': response.data['fileUrl'] as String?,
             'fileName': response.data['fileName'] as String?,
@@ -113,10 +102,8 @@ class Controllerdrive {
       } else {
         errorMessage += e.message ?? 'Unknown Dio error';
       }
-      print(errorMessage); // Cetak pesan error untuk debugging
       throw Exception(errorMessage);
     } catch (e) {
-      print('Terjadi kesalahan lain saat unggah: $e'); // Cetak pesan error untuk debugging
       throw Exception('Gagal mengunggah file karena kesalahan tak terduga: $e');
     }
   }

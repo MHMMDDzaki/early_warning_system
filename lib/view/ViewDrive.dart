@@ -8,7 +8,10 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../utils/jwtUtils.dart';
 
 class Viewdrive extends StatefulWidget {
+  const Viewdrive({super.key});
+
   @override
+  // ignore: library_private_types_in_public_api
   _ViewdriveState createState() => _ViewdriveState();
 }
 
@@ -38,9 +41,9 @@ class _ViewdriveState extends State<Viewdrive> {
   }
 
   final gradientColors = [
-    Color(0xFF665C3C),
-    Color(0xFF1E1E1E),
-    Color(0xFF1E1E1E),
+    const Color(0xFF665C3C),
+    const Color(0xFF1E1E1E),
+    const Color(0xFF1E1E1E),
   ];
 
   @override
@@ -49,9 +52,66 @@ class _ViewdriveState extends State<Viewdrive> {
     _initializeAndCheckAuth();
   }
 
+  Future<void> _showAlertDialog(
+      BuildContext context, String title, String message,
+      {bool isSuccess = false, VoidCallback? onSuccessDismiss}) async {
+    return showDialog<void>(
+      context: context,
+      barrierDismissible: false, // User must tap button to dismiss
+      builder: (BuildContext dialogContext) {
+        return AlertDialog(
+          backgroundColor: Colors.black,
+          shape: RoundedRectangleBorder(
+            borderRadius:
+                BorderRadius.circular(12.0), // Atur radius sesuai keinginan
+            side: const BorderSide(color: Colors.yellow, width: 2.0),
+          ),
+          title: Text(
+            title,
+            style: const TextStyle(
+              color: Colors.white70,
+              fontWeight: FontWeight.bold,
+            ),
+            textAlign: TextAlign.center,
+          ),
+          content: Text(
+            message,
+            style: const TextStyle(color: Colors.white70),
+            textAlign: TextAlign.center,
+          ),
+          actions: <Widget>[
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.yellow,
+                foregroundColor: Colors.black,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8.0),
+                ),
+                textStyle: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              child: const Text('OK'),
+              onPressed: () {
+                Navigator.of(dialogContext).pop(); // Dismiss the dialog
+                if (isSuccess && onSuccessDismiss != null) {
+                  onSuccessDismiss(); // Call additional action if provided
+                }
+              },
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   Future<void> _initializeAndCheckAuth() async {
-    prefs = await SharedPreferences.getInstance(); // Inisialisasi prefs di sini
-    await _checkAuth(); // Panggil _checkAuth setelah prefs diinisialisasi
+    prefs = await SharedPreferences.getInstance();
+    await _checkAuth();
+    if (!mounted) return; // Panggil _checkAuth setelah prefs diinisialisasi
     if (mounted &&
         (prefs.getString('token') != null &&
             !isTokenExpired(prefs.getString('token')!))) {
@@ -67,10 +127,8 @@ class _ViewdriveState extends State<Viewdrive> {
       await prefs.remove('token'); // Hapus token yang tidak valid/expired
       if (mounted) {
         // Pastikan widget masih dalam tree
-        Navigator.pushReplacementNamed(context, '/login');
+        Navigator.pushNamedAndRemoveUntil(context, '/login', (route) => false);
       }
-    } else {
-      print("Token is valid.");
     }
   }
 
@@ -81,7 +139,9 @@ class _ViewdriveState extends State<Viewdrive> {
     try {
       await fetchTriggerValues();
     } catch (e) {
-      showSnackBar('Gagal memuat data: $e');
+      if (!mounted) return;
+      await _showAlertDialog(context, 'Error',
+          'Gagal memuat data: ${e.toString().replaceFirst("Exception: ", "")}');
     } finally {
       setState(() {
         isLoading = false;
@@ -98,7 +158,9 @@ class _ViewdriveState extends State<Viewdrive> {
       if (result != null && result.files.first.path != null) {
         final file = File(result.files.first.path!);
         if (!file.path.toLowerCase().endsWith('.mp3')) {
-          showSnackBar('Hanya file MP3 yang diperbolehkan');
+          if (!mounted) return;
+          await _showAlertDialog(context, 'File Tidak Valid',
+              'Hanya file MP3 yang diperbolehkan.');
           return;
         }
         setState(() {
@@ -107,11 +169,15 @@ class _ViewdriveState extends State<Viewdrive> {
         });
       }
     } catch (e) {
-      showSnackBar('Gagal memilih file: $e');
+      if (!mounted) return; // Check BEFORE using context
+      await _showAlertDialog(context, 'Error Memilih File',
+          'Gagal memilih file: ${e.toString().replaceFirst("Exception: ", "")}');
     } finally {
-      setState(() {
-        isUploading = false;
-      });
+      if (mounted) {
+        setState(() {
+          isUploading = false;
+        });
+      }
     }
   }
 
@@ -123,12 +189,28 @@ class _ViewdriveState extends State<Viewdrive> {
 
     final token = prefs.getString('token');
     if (token == null || token.isEmpty || isTokenExpired(token)) {
-      showSnackBar('Sesi Anda telah berakhir. Silakan login kembali.');
-      await prefs.remove('token');
       if (mounted) {
-        Navigator.pushReplacementNamed(context, '/login');
+        await _showAlertDialog(context, 'Sesi Berakhir',
+            'Sesi Anda telah berakhir. Silakan login kembali.',
+            onSuccessDismiss: () {
+          if (mounted) {
+            Navigator.pushNamedAndRemoveUntil(
+                context, '/login', (route) => false);
+          }
+        });
+        await prefs.remove('token');
+        if (!mounted) return;
+        setState(() {
+          isSaving = false;
+          isUploading = false; // Reset isUploading as well for robustness
+        });
+        // if (mounted) {
+        //
+        //   Navigator.pushNamedAndRemoveUntil(
+        //       context, '/login', (route) => false);
+        // }
       }
-      return; // Hentikan proses save
+      return;
     }
 
     // Inisialisasi dengan nilai yang ada di state, akan di-override jika ada file baru
@@ -197,11 +279,13 @@ class _ViewdriveState extends State<Viewdrive> {
         // Atau jika Anda ingin menghapus tampilan file setelah save:
         // tempFileName = null;
       });
-
-      showSnackBar('Perubahan berhasil disimpan');
+      if (!mounted) return;
+      await _showAlertDialog(context, 'Sukses', 'Perubahan berhasil disimpan.',
+          isSuccess: true);
     } catch (e) {
-      print(e); // Cetak error ke konsol untuk debugging
-      showSnackBar('Gagal menyimpan perubahan: ${e.toString()}');
+      if (!mounted) return;
+      await _showAlertDialog(context, 'Gagal Menyimpan',
+          'Gagal menyimpan perubahan: ${e.toString().replaceFirst("Exception: ", "")}');
     } finally {
       setState(() {
         isSaving = false;
@@ -235,7 +319,7 @@ class _ViewdriveState extends State<Viewdrive> {
         // Jika tempUploadedFile ada, tempFileName sudah diisi saat pickTempFile.
       });
     } catch (e) {
-      showSnackBar('Gagal mengambil trigger: $e');
+      rethrow;
     }
   }
 
@@ -245,16 +329,17 @@ class _ViewdriveState extends State<Viewdrive> {
     final result = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text('Perubahan belum disimpan'),
-        content: Text('Apakah Anda ingin menyimpan perubahan sebelum keluar?'),
+        title: const Text('Perubahan belum disimpan'),
+        content:
+            const Text('Apakah Anda ingin menyimpan perubahan sebelum keluar?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: Text('Tidak'),
+            child: const Text('Tidak'),
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: Text('Ya'),
+            child: const Text('Ya'),
           ),
         ],
       ),
@@ -265,9 +350,39 @@ class _ViewdriveState extends State<Viewdrive> {
     return result != null;
   }
 
-  void showSnackBar(String message) {
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(message)));
+  Future<bool> _handlePop() async {
+    if (!hasUnsavedChanges) return true; // Allow pop
+
+    final result = await showDialog<bool>(
+      context: context, // Context for dialog
+      builder: (ctx) => AlertDialog(
+        title: const Text('Perubahan belum disimpan'),
+        content: const Text('Apakah Anda ingin menyimpan perubahan sebelum keluar?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false), // Don't save, allow pop
+            child: const Text('Tidak'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true), // Save, then pop
+            child: const Text('Ya'),
+          ),
+        ],
+      ),
+    );
+
+    if (!mounted) return false; // Don't allow pop if widget unmounted during dialog
+
+    if (result == true) {
+      await saveChanges();
+      // After saving, we typically want to allow the pop.
+      // `saveChanges` might navigate if token expired.
+      // If still mounted and save was successful, allow pop.
+      return mounted; // Allow pop if still mounted (saveChanges didn't navigate away for other reasons)
+    } else if (result == false) {
+      return true; // User chose "Tidak", allow pop
+    }
+    return false; // Dialog dismissed (e.g. back button), don't allow pop by default
   }
 
   @override
@@ -279,8 +394,17 @@ class _ViewdriveState extends State<Viewdrive> {
 
   @override
   Widget build(BuildContext context) {
-    return WillPopScope(
-      onWillPop: () async => await confirmExitOrSave(),
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (bool didPop, Object? result) async {
+        if (didPop) {
+          return; // The pop already happened, nothing for us to do.
+        }
+        final bool shouldPop = await _handlePop(); // Your existing logic
+        if (shouldPop && mounted) {
+          Navigator.of(this.context).pop();
+        }
+      },
       child: Stack(
         // Wrap with Stack to show loading overlay
         children: [
@@ -290,7 +414,7 @@ class _ViewdriveState extends State<Viewdrive> {
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
                 colors: gradientColors,
-                stops: [0.2, 0.6, 1.0],
+                stops: const [0.2, 0.6, 1.0],
               ),
             ),
             child: Scaffold(
@@ -299,7 +423,7 @@ class _ViewdriveState extends State<Viewdrive> {
               appBar: AppBar(
                 backgroundColor: Colors.transparent,
                 toolbarHeight: 140,
-                title: Padding(
+                title: const Padding(
                   padding: EdgeInsets.only(top: 10, left: 10),
                   child: Text(
                     'Dashboard \nAdmin',
@@ -309,24 +433,31 @@ class _ViewdriveState extends State<Viewdrive> {
                 actions: [
                   IconButton(
                     onPressed: () async {
-                      final confirmed = await confirmExitOrSave();
-                      await prefs.clear();
-                      if (confirmed)
-                        Navigator.pushReplacementNamed(context, '/login');
+                      final bool canProceed = await _handlePop();
+                      if (!mounted) return;
+
+                      if (canProceed) {
+                        await prefs.clear();
+                        if (!mounted) return;
+                        Navigator.pushNamedAndRemoveUntil(this.context, '/login', (route) => false);
+                      }
                     },
                     icon: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Padding(
-                          padding: EdgeInsets.only(right: 7),
+                          padding: const EdgeInsets.only(right: 7),
                           child: SvgPicture.asset(
                             'assets/icons/logout.svg',
                             height: 35,
                             width: 35,
-                            color: Color(0xFFE41D1D),
+                            colorFilter: const ColorFilter.mode(
+                              Color(0xFFE41D1D),
+                              BlendMode.srcIn,
+                            ),
                           ),
                         ),
-                        Text(
+                        const Text(
                           'EXIT',
                           style:
                               TextStyle(fontSize: 18, color: Color(0xFFE41D1D)),
@@ -345,45 +476,42 @@ class _ViewdriveState extends State<Viewdrive> {
                         label: 'Rsam Trigger On',
                         controller: triggerOnController,
                       ),
-                      SizedBox(height: 40),
+                      const SizedBox(height: 40),
                       buildOutlinedTextField(
                         label: 'Rsam Trigger Off',
                         controller: triggerOffController,
                       ),
-                      SizedBox(height: 40),
+                      const SizedBox(height: 40),
                       buildButton(
                           text: 'Upload Alarm',
                           onPressed: pickTempFile,
                           isLoading: isUploading,
-                          font_size: 20),
+                          fontSize: 20),
                       if (tempFileName != null)
                         Padding(
                           padding: const EdgeInsets.symmetric(vertical: 10),
                           child: Row(
                             children: [
-                              Icon(Icons.music_note, color: Colors.white70),
-                              SizedBox(width: 10),
+                              const Icon(Icons.music_note,
+                                  color: Colors.white70),
+                              const SizedBox(width: 10),
                               Expanded(
                                 child: Text(
                                   tempFileName!,
-                                  style: TextStyle(color: Colors.white70),
+                                  style: const TextStyle(color: Colors.white70),
                                 ),
                               ),
                             ],
                           ),
                         ),
-                      SizedBox(
+                      const SizedBox(
                         height: 150,
                       ),
                       buildButton(
                           text: 'SAVE',
-                          onPressed: () async {
-                            final confirmed = await confirmExitOrSave();
-                            if (confirmed)
-                              showSnackBar('Data berhasil disimpan');
-                          },
+                          onPressed: saveChanges,
                           isLoading: isSaving,
-                          font_size: 30),
+                          fontSize: 30),
                     ],
                   ),
                 ),
@@ -392,23 +520,23 @@ class _ViewdriveState extends State<Viewdrive> {
           ),
           if (isLoading || isSaving || isUploading)
             Container(
-              color: Colors.black.withOpacity(0.7),
+              color: Colors.black.withAlpha((255 * 0.7).round()),
               child: Center(
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    CircularProgressIndicator(
+                    const CircularProgressIndicator(
                       valueColor:
                           AlwaysStoppedAnimation<Color>(Color(0xFFF2C94C)),
                     ),
-                    SizedBox(height: 20),
+                    const SizedBox(height: 20),
                     Text(
                       isLoading
                           ? 'Memuat data...'
                           : isUploading
                               ? 'Mengunggah file...'
                               : 'Menyimpan perubahan...',
-                      style: TextStyle(color: Colors.white, fontSize: 18),
+                      style: const TextStyle(color: Colors.white, fontSize: 18),
                     ),
                   ],
                 ),
@@ -427,17 +555,17 @@ class _ViewdriveState extends State<Viewdrive> {
     return TextField(
       controller: controller,
       keyboardType: TextInputType.number,
-      style: TextStyle(color: Colors.white),
+      style: const TextStyle(color: Colors.white),
       enabled: !(isDisabled ?? false),
       decoration: InputDecoration(
         labelText: label,
-        labelStyle: TextStyle(color: Colors.white),
+        labelStyle: const TextStyle(color: Colors.white),
         filled: true,
         fillColor: Colors.black,
-        enabledBorder: OutlineInputBorder(
+        enabledBorder: const OutlineInputBorder(
           borderSide: BorderSide(color: Colors.white),
         ),
-        focusedBorder: OutlineInputBorder(
+        focusedBorder: const OutlineInputBorder(
           borderSide: BorderSide(color: Color(0xFFF2C94C)),
         ),
       ),
@@ -447,7 +575,7 @@ class _ViewdriveState extends State<Viewdrive> {
   Widget buildButton({
     required String text,
     required VoidCallback onPressed,
-    required double font_size,
+    required double fontSize,
     bool? isLoading,
   }) {
     return SizedBox(
@@ -455,14 +583,14 @@ class _ViewdriveState extends State<Viewdrive> {
       child: ElevatedButton(
         onPressed: (isLoading ?? false) ? null : onPressed,
         style: ElevatedButton.styleFrom(
-          backgroundColor: Color(0xFFF2C94C),
-          padding: EdgeInsets.symmetric(vertical: 4),
+          backgroundColor: const Color(0xFFF2C94C),
+          padding: const EdgeInsets.symmetric(vertical: 4),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(6.0),
           ),
         ),
         child: (isLoading ?? false)
-            ? SizedBox(
+            ? const SizedBox(
                 height: 20,
                 width: 20,
                 child: CircularProgressIndicator(
@@ -472,7 +600,7 @@ class _ViewdriveState extends State<Viewdrive> {
               )
             : Text(
                 text,
-                style: TextStyle(color: Colors.black, fontSize: font_size),
+                style: TextStyle(color: Colors.black, fontSize: fontSize),
               ),
       ),
     );

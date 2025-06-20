@@ -6,7 +6,10 @@ import 'package:syncfusion_flutter_charts/charts.dart';
 import 'dart:async';
 
 class ViewAlarm extends StatefulWidget {
+  const ViewAlarm({super.key});
+
   @override
+  // ignore: library_private_types_in_public_api
   _AlarmViewState createState() => _AlarmViewState();
 }
 
@@ -20,14 +23,16 @@ class _AlarmViewState extends State<ViewAlarm> {
   bool _isChartLoading = false; // Untuk loading chart
   late Timer _dataTimer;
   late Timer _paramTimer;
-  late Timer _volumeTimer;
-  int _currentMaxRsam = 400;
+
+  final int _currentMaxRsam = 400;
   int _triggerOn = 1000;
   int _triggerOff = 280;
   bool isDriveInitialized = false;
-  List<_ChartData> chartData = []; // Menggunakan _ChartData
+  List<_ChartData> chartData = [];
   late int _selectedDurationMinutes;
-  late String _selectedApiRange;
+
+  bool _canShowVolumeErrorSnackbar = true;
+  Timer? _snackbarCooldownTimer;
 
   final List<Map<String, dynamic>> _durationOptions = [
     {'label': '30M', 'minutes': 30, 'apiRange': '30m'},
@@ -51,10 +56,9 @@ class _AlarmViewState extends State<ViewAlarm> {
     if (!mounted) return;
     setState(() => isDriveInitialized = true);
     _selectedDurationMinutes = _durationOptions[0]['minutes'];
-    _selectedApiRange = _durationOptions[0]['apiRange'];
-    // _setupTimers();
+    _setupTimers();
     _updateChartData();
-    // VolumeController.instance.setVolume(1.0);
+    _setupVolumeListener(); // Panggil listener volume
   }
 
   void _onDurationSelected(int minutes, String apiRange) {
@@ -62,7 +66,6 @@ class _AlarmViewState extends State<ViewAlarm> {
 
     setState(() {
       _selectedDurationMinutes = minutes;
-      _selectedApiRange = apiRange;
     });
 
     _updateChartData();
@@ -95,8 +98,15 @@ class _AlarmViewState extends State<ViewAlarm> {
           newChartData.add(_ChartData(timeLabel, rsamVal));
         }
       }
-    } catch (e) {
-      print('Error processing chart data: $e');
+    } catch (e, stackTrace) {
+      debugPrint('Error updating chart data: $e\nStackTrace: $stackTrace');
+      if (mounted) {
+        // Generic error if not a UserVisibleException
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+              content: Text('Terjadi kesalahan saat memuat data chart.')),
+        );
+      }
     }
 
     if (!mounted) return;
@@ -136,7 +146,7 @@ class _AlarmViewState extends State<ViewAlarm> {
         pointsInGroup = 1;
       } else {
         // Hitung selisih waktu dalam menit
-        int diffMinutes = timestamp.difference(currentGroupTime!).inMinutes;
+        int diffMinutes = timestamp.difference(currentGroupTime).inMinutes;
 
         if (diffMinutes < intervalMinutes) {
           // Masih dalam kelompok yang sama
@@ -184,8 +194,15 @@ class _AlarmViewState extends State<ViewAlarm> {
         final timePart = fullTimestamp.split(' ')[1];
         return timePart.substring(0, 5); // Ambil HH:mm
       }
-    } catch (e) {
-      print('Error formatting time: $e');
+    } catch (e, stackTrace) {
+      debugPrint('Error updating chart data: $e\nStackTrace: $stackTrace');
+      if (mounted) {
+        // Generic error if not a UserVisibleException
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+              content: Text('Terjadi kesalahan saat memformat data.')),
+        );
+      }
     }
     return fullTimestamp; // Fallback ke timestamp penuh
   }
@@ -199,37 +216,82 @@ class _AlarmViewState extends State<ViewAlarm> {
     await _fetchChartDataFromController(apiRange); // Panggil metode baru
   }
 
+  // --- LOGIKA VOLUME LISTENER ---
+  void _setupVolumeListener() {
+    _setInitialVolume(); // Set volume awal
+
+    VolumeController.instance.addListener((double newVolume) {
+      if (!mounted) {
+        return;
+      }
+      debugPrint("Volume sistem berubah menjadi: $newVolume");
+
+      if (newVolume < 0.5) {
+        try {
+          VolumeController.instance.setVolume(0.5);
+          debugPrint(
+              "Volume diatur kembali ke 0.5 karena perubahan manual di bawah batas.");
+        } catch (e, stackTrace) {
+          debugPrint(
+              'LISTENER: Gagal mengatur volume kembali ke 0.5: $e\nStackTrace: $stackTrace');
+          _showVolumeErrorSnackbarIfNeeded('Gagal menyesuaikan volume.');
+        }
+      }
+    });
+  }
+
+  Future<void> _setInitialVolume() async {
+    if (!mounted) return;
+    try {
+      // Beri sedikit jeda agar listener siap jika ada interaksi cepat
+      await Future.delayed(const Duration(milliseconds: 100));
+      if (!mounted) return;
+
+      double currentVolume = await VolumeController.instance.getVolume();
+      if (currentVolume < 0.667) {
+        VolumeController.instance.setVolume(0.5);
+        debugPrint("Volume awal diatur ke 0.5.");
+      }
+    } catch (e, stackTrace) {
+      debugPrint(
+          'INITIAL: Gagal mengatur volume awal: $e\nStackTrace: $stackTrace');
+      _showVolumeErrorSnackbarIfNeeded('Gagal mengatur volume awal sistem.');
+    }
+  }
+
+  void _showVolumeErrorSnackbarIfNeeded(String message) {
+    if (!mounted) return;
+
+    if (_canShowVolumeErrorSnackbar) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message)),
+      );
+      if (mounted) {
+        setState(() {
+          _canShowVolumeErrorSnackbar = false;
+        });
+      }
+
+      _snackbarCooldownTimer?.cancel();
+      _snackbarCooldownTimer = Timer(const Duration(seconds: 10), () {
+        if (mounted) {
+          setState(() {
+            _canShowVolumeErrorSnackbar = true;
+          });
+        }
+      });
+    }
+  }
+  // --- END LOGIKA VOLUME LISTENER ---
+
   void _setupTimers() {
-    // Update parameter setiap 5 detik
-    // _paramTimer = Timer.periodic(Duration(seconds: 60), (timer) {
-    //   setState(() => _currentMaxRsam += 100);
-    //   print('New maxRsam: $_currentMaxRsam');
-    // });
-
-    // _volumeTimer = Timer.periodic(Duration(seconds: 1), (timer) async {
-    // if (!mounted) {
-    //   timer.cancel(); // Batalkan timer ini
-    //   return;
-    // }
-    //   try {
-    //     double volume = await VolumeController.instance.getVolume();
-    //
-    //     if (volume < 1.0) {
-    //       VolumeController.instance.setVolume(1.0);
-    //     }
-    //   } catch (e) {
-    //     print(e);
-    //   }
-    // });
-
     // Fetch data setiap 1 detik
-    _dataTimer = Timer.periodic(Duration(seconds: 1), (timer) async {
+    _dataTimer = Timer.periodic(const Duration(seconds: 1), (timer) async {
       if (!mounted) {
         timer.cancel(); // Batalkan timer ini
         return;
       }
       if (!isDriveInitialized) return;
-
 
       final triggers = await _controller.getTriggerValues();
       if (!mounted) return;
@@ -252,8 +314,15 @@ class _AlarmViewState extends State<ViewAlarm> {
         } else if (value <= _triggerOff && isAlarmClosed) {
           isAlarmClosed = false;
         }
-      } catch (e) {
-        print('Error fetching data: $e');
+      } catch (e, stackTrace) {
+        debugPrint('Error updating data: $e\nStackTrace: $stackTrace');
+        if (mounted) {
+          // Generic error if not a UserVisibleException
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+                content: Text('Terjadi kesalahan saat memuat data.')),
+          );
+        }
       }
     });
   }
@@ -267,10 +336,10 @@ class _AlarmViewState extends State<ViewAlarm> {
 
   @override
   void dispose() {
-    // _initializeApp();
+    _initializeApp();
     _dataTimer.cancel();
     _paramTimer.cancel();
-    _volumeTimer.cancel();
+    _snackbarCooldownTimer?.cancel();
     super.dispose();
   }
 
@@ -285,13 +354,13 @@ class _AlarmViewState extends State<ViewAlarm> {
         insetPadding: EdgeInsets.zero, // Hilangkan padding default
         child: Container(
           width: screenWidth, // Lebar penuh layar// Margin sisi kiri-kanan
-          decoration: BoxDecoration(
+          decoration: const BoxDecoration(
             color: Colors.black87,
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              SizedBox(height: 24),
+              const SizedBox(height: 24),
               Stack(
                 alignment: Alignment.center,
                 children: [
@@ -299,17 +368,23 @@ class _AlarmViewState extends State<ViewAlarm> {
                     'assets/icons/outline_circle.svg',
                     height: 150,
                     width: 150,
-                    color: Color(0xFFE41D1D),
+                    colorFilter: const ColorFilter.mode(
+                      Color(0xFFE41D1D),
+                      BlendMode.srcIn,
+                    ),
                   ),
                   SvgPicture.asset(
                     'assets/icons/triangle_warning.svg',
                     height: 100,
                     width: 100,
-                    color: Color(0xFFE41D1D),
+                    colorFilter: const ColorFilter.mode(
+                      Color(0xFFE41D1D),
+                      BlendMode.srcIn,
+                    ),
                   ),
                 ],
               ),
-              Padding(
+              const Padding(
                 padding: EdgeInsets.symmetric(horizontal: 16),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -326,33 +401,31 @@ class _AlarmViewState extends State<ViewAlarm> {
                     SizedBox(height: 12),
                     Text(
                       'Tekan tombol di bawah untuk menghentikan alarm.',
-                      style: TextStyle(
-                          color: Colors.white70,
-                          fontSize: 16
-                      ),
+                      style: TextStyle(color: Colors.white70, fontSize: 16),
                       textAlign: TextAlign.center,
                     ),
                   ],
                 ),
               ),
-              SizedBox(height: 24),
+              const SizedBox(height: 24),
               Center(
                 child: OutlinedButton(
                   style: OutlinedButton.styleFrom(
-                    backgroundColor: Color(0xFFE41D1D),
+                    backgroundColor: const Color(0xFFE41D1D),
                     side: BorderSide.none,
-                    padding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 24, vertical: 12),
                   ),
                   onPressed: () async {
                     await _showConfirmationDialog(parentContext);
                   },
-                  child: Text(
+                  child: const Text(
                     'Stop Alarm',
                     style: TextStyle(color: Colors.white, fontSize: 20),
                   ),
                 ),
               ),
-              SizedBox(height: 24),
+              const SizedBox(height: 24),
             ],
           ),
         ),
@@ -364,12 +437,21 @@ class _AlarmViewState extends State<ViewAlarm> {
     await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text('Stop Alarm'),
-        content: Text('Are you sure you want to stop the alarm?'),
+        title: const Text(
+          'Anda Yakin ?',
+          textAlign: TextAlign.center,
+          style: TextStyle(color: Colors.yellow),
+        ),
+        content: const Text(
+            'Mematikan alarm akan membuat alarm ini mati sementara sampai Rsam menyentuh trigger off',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: Colors.white70)),
+        backgroundColor: Colors.black,
+        shape: Border.all(color: Colors.yellow, width: 2),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
-            child: Text('Cancel'),
+            child: const Text('Tidak', style: TextStyle(color: Colors.white70)),
           ),
           TextButton(
             onPressed: () async {
@@ -382,7 +464,7 @@ class _AlarmViewState extends State<ViewAlarm> {
               await _controller.exitKioskMode();
               await _controller.scheduleCancelAlarm();
             },
-            child: Text('Yes'),
+            child: const Text('Ya', style: TextStyle(color: Colors.white70)),
           ),
         ],
       ),
@@ -392,10 +474,19 @@ class _AlarmViewState extends State<ViewAlarm> {
   @override
   Widget build(BuildContext context) {
     final gradientColors = isLockMode
-        ? [Color(0xFFA02D2D), Color(0xFF1E1E1E), Color(0xFF1E1E1E)]
-        : [Color(0xFF665C3C), Color(0xFF1E1E1E), Color(0xFF1E1E1E)];
+        ? [
+            const Color(0xFFA02D2D),
+            const Color(0xFF1E1E1E),
+            const Color(0xFF1E1E1E)
+          ]
+        : [
+            const Color(0xFF665C3C),
+            const Color(0xFF1E1E1E),
+            const Color(0xFF1E1E1E)
+          ];
 
-    final textColor = isLockMode ? Color(0xFFE41D1D) : Color(0xFFF2C94C);
+    final textColor =
+        isLockMode ? const Color(0xFFE41D1D) : const Color(0xFFF2C94C);
 
     return Container(
       decoration: BoxDecoration(
@@ -403,7 +494,7 @@ class _AlarmViewState extends State<ViewAlarm> {
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
           colors: gradientColors,
-          stops: [0.2, 0.6, 1.0],
+          stops: const [0.2, 0.6, 1.0],
         ),
       ),
       child: Scaffold(
@@ -414,21 +505,22 @@ class _AlarmViewState extends State<ViewAlarm> {
           toolbarHeight: 80,
           actions: [
             Padding(
-              padding: EdgeInsets.only(top: 12.0, right: 20.0),
+              padding: const EdgeInsets.only(top: 12.0, right: 20.0),
               child: IconButton(
                 icon: SvgPicture.asset(
                   'assets/icons/user_octagon.svg',
                   height: 40,
                   width: 40,
-                  colorFilter:
-                      ColorFilter.mode(Color(0xFFF2C94C), BlendMode.srcIn),
+                  colorFilter: const ColorFilter.mode(
+                      Color(0xFFF2C94C), BlendMode.srcIn),
                 ),
                 onPressed: () async {
                   if (!mounted) return;
                   setState(() => isLoading = true);
-                  await Future.delayed(Duration(milliseconds: 100));
+                  await Future.delayed(const Duration(milliseconds: 100));
                   if (!mounted) return;
-                  Navigator.pushReplacementNamed(context, '/login');
+                  Navigator.pushNamedAndRemoveUntil(
+                      context, '/login', (route) => false);
                 },
               ),
             )
@@ -443,9 +535,9 @@ class _AlarmViewState extends State<ViewAlarm> {
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     _buildRsamDisplay(textColor),
-                    SizedBox(height: 20),
+                    const SizedBox(height: 20),
                     _buildDurationSelector(),
-                    SizedBox(height: 20),
+                    const SizedBox(height: 20),
                     _buildChartArea(),
                   ],
                 ),
@@ -453,8 +545,8 @@ class _AlarmViewState extends State<ViewAlarm> {
             ),
             if (isLoading)
               Container(
-                color: Colors.black.withOpacity(0.5),
-                child: Center(
+                color: Colors.black.withAlpha((255 * 0.5).round()),
+                child: const Center(
                   child: CircularProgressIndicator(
                     color: Colors.yellow,
                   ),
@@ -468,30 +560,32 @@ class _AlarmViewState extends State<ViewAlarm> {
 
   Widget _buildDurationSelector() {
     return Container(
-      margin: EdgeInsets.symmetric(vertical: 10),
+      margin: const EdgeInsets.symmetric(vertical: 10),
       height: 40,
       child: ListView.builder(
         scrollDirection: Axis.horizontal,
         shrinkWrap: true,
-        physics: ClampingScrollPhysics(),
+        physics: const ClampingScrollPhysics(),
         itemCount: _durationOptions.length,
         itemBuilder: (context, index) {
           final duration = _durationOptions[index];
           bool isSelected = _selectedDurationMinutes == duration['minutes'];
           return Container(
-            margin: EdgeInsets.symmetric(horizontal: 4), // Jarak antar item
+            margin:
+                const EdgeInsets.symmetric(horizontal: 4), // Jarak antar item
             child: TextButton(
               style: TextButton.styleFrom(
                 padding: EdgeInsets.zero,
                 minimumSize: Size.zero,
                 tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                overlayColor: Color.fromRGBO(255,235,59, 0.2),
+                overlayColor: const Color.fromRGBO(255, 235, 59, 0.2),
               ),
               onPressed: () {
                 _onDurationSelected(duration['minutes'], duration['apiRange']);
               },
               child: Container(
-                padding: EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+                padding:
+                    const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
                 decoration: BoxDecoration(
                   border: Border(
                     bottom: BorderSide(
@@ -516,13 +610,13 @@ class _AlarmViewState extends State<ViewAlarm> {
 
   Widget _buildChartArea() {
     if (_isChartLoading) {
-      return Container(
+      return const SizedBox(
         height: 300,
         child: Center(child: CircularProgressIndicator(color: Colors.yellow)),
       );
     }
     if (chartData.isEmpty && !_isChartLoading) {
-      return Container(
+      return const SizedBox(
         height: 300,
         child: Center(
             child: Text("Tidak ada data untuk ditampilkan",
@@ -531,13 +625,13 @@ class _AlarmViewState extends State<ViewAlarm> {
     }
     return Container(
       height: 300,
-      padding: EdgeInsets.symmetric(horizontal: 8.0),
+      padding: const EdgeInsets.symmetric(horizontal: 8.0),
       child: SfCartesianChart(
-        primaryXAxis: CategoryAxis(
+        primaryXAxis: const CategoryAxis(
           labelStyle: TextStyle(color: Colors.white54),
           majorGridLines: MajorGridLines(width: 0),
         ),
-        primaryYAxis: NumericAxis(
+        primaryYAxis: const NumericAxis(
           labelStyle: TextStyle(color: Colors.white54),
           majorGridLines: MajorGridLines(width: 0.5, color: Colors.white24),
           axisLine: AxisLine(width: 0),
@@ -547,10 +641,10 @@ class _AlarmViewState extends State<ViewAlarm> {
             dataSource: chartData,
             xValueMapper: (_ChartData data, _) => data.timeLabel,
             yValueMapper: (_ChartData data, _) => data.rsamValue,
-            color: Color.fromRGBO(255, 235, 59, 0.2), // Warna area
+            color: const Color.fromRGBO(255, 235, 59, 0.2), // Warna area
             borderColor: Colors.yellow,
             borderWidth: 2,
-            gradient: LinearGradient(
+            gradient: const LinearGradient(
               colors: [
                 Color.fromRGBO(255, 235, 59, 0.8),
                 Colors.transparent,
@@ -573,7 +667,7 @@ class _AlarmViewState extends State<ViewAlarm> {
       crossAxisAlignment: CrossAxisAlignment.end,
       children: [
         Text(
-          '$result',
+          result,
           style: TextStyle(color: textColor, fontSize: 128),
         ),
         Padding(
