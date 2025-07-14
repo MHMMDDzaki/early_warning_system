@@ -3,7 +3,10 @@ import '../controller/ControllerAlarm.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:volume_controller/volume_controller.dart';
 import 'package:syncfusion_flutter_charts/charts.dart';
+import 'package:flutter_background_service/flutter_background_service.dart';
 import 'dart:async';
+import '../state/AppState.dart';
+
 
 class ViewAlarm extends StatefulWidget {
   const ViewAlarm({super.key});
@@ -14,15 +17,16 @@ class ViewAlarm extends StatefulWidget {
 }
 
 class _AlarmViewState extends State<ViewAlarm> {
-  final ControllerAlarm _controller = ControllerAlarm();
+  final ControllerAlarm _controller = ControllerAlarm.instance;
   double rsamValue = 0.0;
   String result = '';
-  bool isAlarmClosed = false;
-  bool isLockMode = false;
+  // bool isAlarmClosed = false;
+  // bool isLockMode = false;
   bool isLoading = false; // Untuk loading navigasi
   bool _isChartLoading = false; // Untuk loading chart
   late Timer _dataTimer;
   late Timer _paramTimer;
+  StreamSubscription<double>? _volumeSubscription;
 
   final int _currentMaxRsam = 400;
   int _triggerOn = 1000;
@@ -49,6 +53,20 @@ class _AlarmViewState extends State<ViewAlarm> {
   void initState() {
     super.initState();
     _initializeApp();
+    isAlarmGloballyActive.addListener(_handleGlobalAlarmStateChange);
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (isAlarmGloballyActive.value && mounted) {
+        _handleAlarmActivation();
+      }
+    });
+  }
+
+  void _handleGlobalAlarmStateChange() {
+    final isDialogShowing = ModalRoute.of(context)?.isCurrent != true;
+    if (mounted && isAlarmGloballyActive.value && !isDialogShowing) {
+      _handleAlarmActivation();
+    }
   }
 
   void _initializeApp() async {
@@ -58,7 +76,6 @@ class _AlarmViewState extends State<ViewAlarm> {
     _selectedDurationMinutes = _durationOptions[0]['minutes'];
     _setupTimers();
     _updateChartData();
-    _setupVolumeListener(); // Panggil listener volume
   }
 
   void _onDurationSelected(int minutes, String apiRange) {
@@ -217,23 +234,21 @@ class _AlarmViewState extends State<ViewAlarm> {
   }
 
   // --- LOGIKA VOLUME LISTENER ---
-  void _setupVolumeListener() {
+  void _startVolumeListener() {
     _setInitialVolume(); // Set volume awal
 
-    VolumeController.instance.addListener((double newVolume) {
+    _volumeSubscription =
+        VolumeController.instance.addListener((double newVolume) {
       if (!mounted) {
         return;
       }
       debugPrint("Volume sistem berubah menjadi: $newVolume");
-
-      if (newVolume < 0.5) {
+      if (newVolume < 1) {
         try {
-          VolumeController.instance.setVolume(0.5);
-          debugPrint(
-              "Volume diatur kembali ke 0.5 karena perubahan manual di bawah batas.");
+          VolumeController.instance.setVolume(1);
         } catch (e, stackTrace) {
           debugPrint(
-              'LISTENER: Gagal mengatur volume kembali ke 0.5: $e\nStackTrace: $stackTrace');
+              'LISTENER: Gagal mengatur volume kembali ke 0.1: $e\nStackTrace: $stackTrace');
           _showVolumeErrorSnackbarIfNeeded('Gagal menyesuaikan volume.');
         }
       }
@@ -248,15 +263,20 @@ class _AlarmViewState extends State<ViewAlarm> {
       if (!mounted) return;
 
       double currentVolume = await VolumeController.instance.getVolume();
-      if (currentVolume < 0.667) {
-        VolumeController.instance.setVolume(0.5);
-        debugPrint("Volume awal diatur ke 0.5.");
+      if (currentVolume < 1) {
+        VolumeController.instance.setVolume(1);
       }
     } catch (e, stackTrace) {
       debugPrint(
           'INITIAL: Gagal mengatur volume awal: $e\nStackTrace: $stackTrace');
       _showVolumeErrorSnackbarIfNeeded('Gagal mengatur volume awal sistem.');
     }
+  }
+
+  void _stopVolumeControl() {
+    // Batalkan listener agar tidak lagi mengontrol volume sistem
+    _volumeSubscription?.cancel();
+    _volumeSubscription = null;
   }
 
   void _showVolumeErrorSnackbarIfNeeded(String message) {
@@ -301,18 +321,27 @@ class _AlarmViewState extends State<ViewAlarm> {
       });
 
       try {
-        final value = await _controller.fetchAlarmStatus(_currentMaxRsam);
+        final value = await _controller
+            .fetchAlarmStatus(_currentMaxRsam)
+            .timeout(const Duration(seconds: 20));
+
         if (!mounted) return;
         setState(() {
           rsamValue = value;
           result = value.toStringAsFixed(2);
         });
 
-        if (value > _triggerOn && !isAlarmClosed && !isLockMode) {
-          if (!mounted) return;
-          await _handleAlarmActivation();
-        } else if (value <= _triggerOff && isAlarmClosed) {
-          isAlarmClosed = false;
+      } on TimeoutException catch (e, stackTrace) {
+        debugPrint(
+            'Error: Data fetching timed out after 20 seconds. $e\nStackTrace: $stackTrace');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content:
+                  Text('Koneksi lambat: Gagal memuat data dalam 20 detik.'),
+              backgroundColor: Colors.orange,
+            ),
+          );
         }
       } catch (e, stackTrace) {
         debugPrint('Error updating data: $e\nStackTrace: $stackTrace');
@@ -328,15 +357,15 @@ class _AlarmViewState extends State<ViewAlarm> {
   }
 
   Future<void> _handleAlarmActivation() async {
-    setState(() => isLockMode = true);
+    _startVolumeListener(); // Panggil listener volume
     _showWarningDialog();
     await _controller.enterKioskMode();
-    await _controller.scheduleAlarm();
   }
 
   @override
   void dispose() {
     _initializeApp();
+    isAlarmGloballyActive.removeListener(_handleGlobalAlarmStateChange);
     _dataTimer.cancel();
     _paramTimer.cancel();
     _snackbarCooldownTimer?.cancel();
@@ -455,14 +484,12 @@ class _AlarmViewState extends State<ViewAlarm> {
           ),
           TextButton(
             onPressed: () async {
-              setState(() {
-                isAlarmClosed = true;
-                isLockMode = false;
-              });
+              FlutterBackgroundService().invoke('resetAlarmState');
+              isAlarmGloballyActive.value = false;
               Navigator.pop(context);
               Navigator.pop(parentContext);
+              _stopVolumeControl();
               await _controller.exitKioskMode();
-              await _controller.scheduleCancelAlarm();
             },
             child: const Text('Ya', style: TextStyle(color: Colors.white70)),
           ),
@@ -473,88 +500,93 @@ class _AlarmViewState extends State<ViewAlarm> {
 
   @override
   Widget build(BuildContext context) {
-    final gradientColors = isLockMode
-        ? [
+    return ValueListenableBuilder<bool>(
+        valueListenable: isAlarmGloballyActive,
+        builder: (context, isLockMode, child) {
+          final gradientColors = isLockMode
+              ? [
             const Color(0xFFA02D2D),
             const Color(0xFF1E1E1E),
             const Color(0xFF1E1E1E)
           ]
-        : [
+              : [
             const Color(0xFF665C3C),
             const Color(0xFF1E1E1E),
             const Color(0xFF1E1E1E)
           ];
 
-    final textColor =
-        isLockMode ? const Color(0xFFE41D1D) : const Color(0xFFF2C94C);
+          final textColor =
+          isLockMode ? const Color(0xFFE41D1D) : const Color(0xFFF2C94C);
 
-    return Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: gradientColors,
-          stops: const [0.2, 0.6, 1.0],
-        ),
-      ),
-      child: Scaffold(
-        backgroundColor: Colors.transparent,
-        appBar: AppBar(
-          backgroundColor: Colors.transparent,
-          elevation: 0,
-          toolbarHeight: 80,
-          actions: [
-            Padding(
-              padding: const EdgeInsets.only(top: 12.0, right: 20.0),
-              child: IconButton(
-                icon: SvgPicture.asset(
-                  'assets/icons/user_octagon.svg',
-                  height: 40,
-                  width: 40,
-                  colorFilter: const ColorFilter.mode(
-                      Color(0xFFF2C94C), BlendMode.srcIn),
-                ),
-                onPressed: () async {
-                  if (!mounted) return;
-                  setState(() => isLoading = true);
-                  await Future.delayed(const Duration(milliseconds: 100));
-                  if (!mounted) return;
-                  Navigator.pushNamedAndRemoveUntil(
-                      context, '/login', (route) => false);
-                },
-              ),
-            )
-          ],
-        ),
-        body: Stack(
-          children: [
-            Center(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(16.0),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    _buildRsamDisplay(textColor),
-                    const SizedBox(height: 20),
-                    _buildDurationSelector(),
-                    const SizedBox(height: 20),
-                    _buildChartArea(),
-                  ],
-                ),
+          return Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: gradientColors,
+                stops: const [0.2, 0.6, 1.0],
               ),
             ),
-            if (isLoading)
-              Container(
-                color: Colors.black.withAlpha((255 * 0.5).round()),
-                child: const Center(
-                  child: CircularProgressIndicator(
-                    color: Colors.yellow,
-                  ),
-                ),
+            child: Scaffold(
+              backgroundColor: Colors.transparent,
+              appBar: AppBar(
+                backgroundColor: Colors.transparent,
+                elevation: 0,
+                toolbarHeight: 80,
+                actions: [
+                  Padding(
+                    padding: const EdgeInsets.only(top: 12.0, right: 20.0),
+                    child: IconButton(
+                      icon: SvgPicture.asset(
+                        'assets/icons/user_octagon.svg',
+                        height: 40,
+                        width: 40,
+                        colorFilter: const ColorFilter.mode(
+                            Color(0xFFF2C94C), BlendMode.srcIn),
+                      ),
+                      onPressed: () async {
+                        if (!mounted) return;
+                        setState(() => isLoading = true);
+                        await Future.delayed(const Duration(milliseconds: 100));
+                        if (!mounted) return;
+                        Navigator.pushNamedAndRemoveUntil(
+                            context, '/login', (route) => false);
+                      },
+                    ),
+                  )
+                ],
               ),
-          ],
-        ),
-      ),
+              body: Stack(
+                children: [
+                  Center(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.all(16.0),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          _buildRsamDisplay(textColor),
+                          const SizedBox(height: 20),
+                          _buildDurationSelector(),
+                          const SizedBox(height: 20),
+                          _buildChartArea(),
+                        ],
+                      ),
+                    ),
+                  ),
+                  if (isLoading)
+                    Container(
+                      color: Colors.black.withAlpha((255 * 0.5).round()),
+                      child: const Center(
+                        child: CircularProgressIndicator(
+                          color: Colors.yellow,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          );
+        }
     );
   }
 
@@ -668,7 +700,7 @@ class _AlarmViewState extends State<ViewAlarm> {
       children: [
         Text(
           result,
-          style: TextStyle(color: textColor, fontSize: 128),
+          style: TextStyle(color: textColor, fontSize: 108),
         ),
         Padding(
           padding: const EdgeInsets.only(bottom: 27, left: 10),

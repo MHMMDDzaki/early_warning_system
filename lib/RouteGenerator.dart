@@ -4,6 +4,7 @@ import 'view/ViewLoginAdmin.dart';
 import 'view/ViewDrive.dart';
 import 'view/ViewRegister.dart';
 import 'view/ViewForgotPassword.dart';
+import 'view/ViewRegistration.dart';
 
 class RouteGenerator {
   static Route<dynamic> generateRoute(RouteSettings settings) {
@@ -18,6 +19,8 @@ class RouteGenerator {
         return MaterialPageRoute(builder: (_) => const ViewRegister());
       case '/forgot-password': // <--- Tambahkan rute ini
         return MaterialPageRoute(builder: (_) => const ViewForgotPassword());
+      case '/registration-list':
+        return MaterialPageRoute(builder: (_) => const ViewRegistration());
       default:
         return _errorRoute();
     }

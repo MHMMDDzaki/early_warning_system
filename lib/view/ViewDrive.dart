@@ -26,6 +26,7 @@ class _ViewdriveState extends State<Viewdrive> {
   bool isLoading = true;
   File? tempUploadedFile;
   String? tempFileName;
+  bool _isSuperAdmin = false;
 
   int? initialTriggerOn;
   int? initialTriggerOff;
@@ -112,10 +113,14 @@ class _ViewdriveState extends State<Viewdrive> {
     prefs = await SharedPreferences.getInstance();
     await _checkAuth();
     if (!mounted) return; // Panggil _checkAuth setelah prefs diinisialisasi
-    if (mounted &&
-        (prefs.getString('token') != null &&
-            !isTokenExpired(prefs.getString('token')!))) {
-      // Hanya fetchAll jika token valid dan widget masih mounted
+    final token = prefs.getString('token');
+    if (token != null && !isTokenExpired(token)) {
+      final role = getRoleFromToken(token);
+      if (role == 'superadmin') {
+        setState(() {
+          _isSuperAdmin = true;
+        });
+      }
       fetchAll();
     }
   }
@@ -204,11 +209,6 @@ class _ViewdriveState extends State<Viewdrive> {
           isSaving = false;
           isUploading = false; // Reset isUploading as well for robustness
         });
-        // if (mounted) {
-        //
-        //   Navigator.pushNamedAndRemoveUntil(
-        //       context, '/login', (route) => false);
-        // }
       }
       return;
     }
@@ -245,39 +245,25 @@ class _ViewdriveState extends State<Viewdrive> {
 
         // Bersihkan file temporer setelah berhasil diolah
         tempUploadedFile = null;
-        // tempFileName tidak perlu di-update dari uploadResult['fileName'] karena
-        // finalAudioName sudah menampungnya dan akan digunakan untuk update state.
-        // Anda bisa mengosongkan tempFileName atau mengaturnya ke finalAudioName
-        // agar UI konsisten setelah save.
       }
-
-      // Langkah 2: Buat model dengan data terkini (termasuk URL dan nama audio yang sudah benar)
       final updatedTrigger = ModelDrive(
         triggerOn: int.parse(triggerOnController.text),
         triggerOff: int.parse(triggerOffController.text),
         audioUrl: finalAudioUrl, // Gunakan URL yang mungkin baru
         audioName: finalAudioName, // Gunakan nama yang mungkin baru
       );
-
-      // Langkah 3: Kirim pembaruan (termasuk trigger_on, trigger_off, dan info audio yang benar) ke API
       await controller.updateTriggerValues(updatedTrigger);
 
-      // Langkah 4: Update state lokal setelah semua operasi berhasil
-      // Ini penting agar UI mencerminkan data yang tersimpan di server
       setState(() {
         initialTriggerOn = updatedTrigger.triggerOn;
         initialTriggerOff = updatedTrigger.triggerOff;
         audioUrl = finalAudioUrl; // Update state dengan URL baru/yang sesuai
         audioName = finalAudioName; // Update state dengan nama baru/yang sesuai
 
-        // Update tempFileName agar konsisten dengan audioName yang tersimpan,
-        // ini akan memperbarui tampilan nama file di UI jika Anda menampilkannya.
         if (tempUploadedFile == null) {
           // Hanya jika tidak ada file baru yang dipilih
           tempFileName = finalAudioName;
         }
-        // Atau jika Anda ingin menghapus tampilan file setelah save:
-        // tempFileName = null;
       });
       if (!mounted) return;
       await _showAlertDialog(context, 'Sukses', 'Perubahan berhasil disimpan.',
@@ -297,8 +283,6 @@ class _ViewdriveState extends State<Viewdrive> {
     }
   }
 
-// ...
-// Dalam fetchAll atau fetchTriggerValues, pastikan tempFileName diinisialisasi dengan benar:
   Future<void> fetchTriggerValues() async {
     try {
       final trigger = await controller.getTriggerValues();
@@ -309,8 +293,6 @@ class _ViewdriveState extends State<Viewdrive> {
       audioUrl = trigger.audioUrl;
       audioName = trigger.audioName;
       setState(() {
-        // Jika tidak ada file yang sedang dipilih untuk diunggah,
-        // tampilkan nama file dari server.
         if (tempUploadedFile == null &&
             audioName != null &&
             audioName!.isNotEmpty) {
@@ -357,7 +339,8 @@ class _ViewdriveState extends State<Viewdrive> {
       context: context, // Context for dialog
       builder: (ctx) => AlertDialog(
         title: const Text('Perubahan belum disimpan'),
-        content: const Text('Apakah Anda ingin menyimpan perubahan sebelum keluar?'),
+        content:
+            const Text('Apakah Anda ingin menyimpan perubahan sebelum keluar?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false), // Don't save, allow pop
@@ -371,13 +354,12 @@ class _ViewdriveState extends State<Viewdrive> {
       ),
     );
 
-    if (!mounted) return false; // Don't allow pop if widget unmounted during dialog
+    if (!mounted) {
+      return false; // Don't allow pop if widget unmounted during dialog
+    }
 
     if (result == true) {
       await saveChanges();
-      // After saving, we typically want to allow the pop.
-      // `saveChanges` might navigate if token expired.
-      // If still mounted and save was successful, allow pop.
       return mounted; // Allow pop if still mounted (saveChanges didn't navigate away for other reasons)
     } else if (result == false) {
       return true; // User chose "Tidak", allow pop
@@ -431,6 +413,32 @@ class _ViewdriveState extends State<Viewdrive> {
                   ),
                 ),
                 actions: [
+                  if (_isSuperAdmin)
+                    IconButton(
+                      onPressed: () {
+                        Navigator.pushNamed(context, '/registration-list');
+                      },
+                      icon: const Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Padding(
+                            padding: EdgeInsets.only(right: 0),
+                            child: Icon(
+                              Icons.how_to_reg_outlined,
+                              size: 35,
+                              color: Color(0xFFF2C94C),
+                            ),
+                          ),
+                          Text(
+                            'APPROVAL',
+                            style: TextStyle(
+                              fontSize: 18,
+                              color: Color(0xFFF2C94C),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   IconButton(
                     onPressed: () async {
                       final bool canProceed = await _handlePop();
@@ -439,7 +447,8 @@ class _ViewdriveState extends State<Viewdrive> {
                       if (canProceed) {
                         await prefs.clear();
                         if (!mounted) return;
-                        Navigator.pushNamedAndRemoveUntil(this.context, '/login', (route) => false);
+                        Navigator.pushNamedAndRemoveUntil(
+                            this.context, '/login', (route) => false);
                       }
                     },
                     icon: Column(

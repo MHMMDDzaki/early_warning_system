@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:flutter_dotenv/flutter_dotenv.dart';
-import '../model/ModelForgotPassword.dart'; // Sesuaikan path jika berbeda
+import '../model/ModelForgotPassword.dart';
 
 class ControllerForgotPassword {
   final String? baseUrl = dotenv.env['BASE_URL'];

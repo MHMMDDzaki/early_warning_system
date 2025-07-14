@@ -1,10 +1,10 @@
 import 'dart:convert';
+import 'package:jwt_decode/jwt_decode.dart';
 
 Map<String, dynamic>? _decodePayload(String token) {
   try {
     final parts = token.split('.');
     if (parts.length != 3) {
-      // Bukan format JWT yang valid
       return null;
     }
     String payloadBase64 = parts[1];
@@ -32,5 +32,17 @@ bool isTokenExpired(String token) {
     return expirationTimeInSeconds < currentTimeInSeconds;
   } catch (e) {
     return true;
+  }
+}
+
+String? getRoleFromToken(String token) {
+  try {
+    if (isTokenExpired(token)) {
+      return null;
+    }
+    Map<String, dynamic> payload = Jwt.parseJwt(token);
+    return payload['role'] as String?;
+  } catch (e) {
+    return null;
   }
 }

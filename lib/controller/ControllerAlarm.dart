@@ -1,4 +1,3 @@
-import 'package:android_alarm_manager_plus/android_alarm_manager_plus.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:kiosk_mode/kiosk_mode.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
@@ -8,6 +7,15 @@ import 'dart:convert';
 import '../model/ModelAlarm.dart';
 
 class ControllerAlarm {
+  // Buat constructor privat
+  ControllerAlarm._privateConstructor();
+
+  // Buat instance statik privat
+  static final ControllerAlarm _instance = ControllerAlarm._privateConstructor();
+
+  // Buat getter publik untuk mengakses instance tunggal
+  static ControllerAlarm get instance => _instance;
+
   ModelAlarm? _modelAlarm;
   String? audioUrlFromApi;
   final baseUrl = dotenv.env['BASE_URL'];
@@ -18,46 +26,32 @@ class ControllerAlarm {
     await getTriggerValues();
   }
 
-  startAlarm() async {
+  Future<void> startAlarm() async {
     if (audioUrlFromApi == null || audioUrlFromApi!.isEmpty) {
+      debugPrint("Audio URL not available, alarm cannot be played.");
       return;
     }
     try {
       await player.play(UrlSource(audioUrlFromApi!));
       player.setReleaseMode(ReleaseMode.loop);
+      debugPrint("Alarm audio started.");
     } catch (e) {
-      debugPrint("Gagal memutar audio: $e");
+      debugPrint("Failed to play audio: $e");
     }
   }
 
-  stopAlarm() {
-    player.stop();
+  // -- CHANGE to a direct stop method --
+  Future<void> stopAlarm() async {
+    try {
+      await player.stop();
+      debugPrint("Alarm audio stopped.");
+    } catch (e) {
+      debugPrint("Failed to stop audio: $e");
+    }
   }
 
   void dispose() {
     player.dispose();
-  }
-
-  Future<void> scheduleAlarm() async {
-    await AndroidAlarmManager.oneShot(
-      const Duration(microseconds: 0),
-      0,
-      startAlarm(),
-      rescheduleOnReboot: true,
-      exact: true,
-      wakeup: true,
-    );
-  }
-
-  Future<void> scheduleCancelAlarm() async {
-    await AndroidAlarmManager.oneShot(
-      const Duration(microseconds: 0),
-      0,
-      stopAlarm(),
-      rescheduleOnReboot: true,
-      exact: true,
-      wakeup: true,
-    );
   }
 
   Future<void> enterKioskMode() async {
@@ -79,10 +73,13 @@ class ControllerAlarm {
   Future<double> fetchAlarmStatus(int maxRsam) async {
     try {
       final response = await http.get(
-        // Uri.parse('$baseUrl/api/rsam-latest?maxRsam=$maxRsam'),
         Uri.parse('$baseUrl/api/rsamv2-latest'),
         headers: {'Accept': 'application/json'},
       );
+      //
+      // final jsonData = jsonDecode(jsonString);
+      // _modelAlarm = ModelAlarm.fromJson(jsonData);
+      // return _modelAlarm!.rsamValue;
 
       if (response.statusCode == 200) {
         final jsonData = jsonDecode(response.body);
@@ -114,10 +111,9 @@ class ControllerAlarm {
       }
 
       throw Exception('Failed to load config. Status: ${response.statusCode}');
-
     } catch (e) {
       return {
-        'triggerOn': 26000,  // Default sesuai contoh API
+        'triggerOn': 26000, // Default sesuai contoh API
         'triggerOff': 500,
         'audioUrl': null,
       };
@@ -136,7 +132,8 @@ class ControllerAlarm {
         final decodedBody = jsonDecode(response.body);
 
         // Ekstrak array dari properti 'data'
-        if (decodedBody is Map<String, dynamic> && decodedBody.containsKey('data')) {
+        if (decodedBody is Map<String, dynamic> &&
+            decodedBody.containsKey('data')) {
           return decodedBody['data'] as List<dynamic>;
         } else {
           throw Exception('Unexpected response format: $decodedBody');
