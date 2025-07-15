@@ -37,16 +37,14 @@ class _AlarmViewState extends State<ViewAlarm> {
 
   bool _canShowVolumeErrorSnackbar = true;
   Timer? _snackbarCooldownTimer;
+  Timer? _chartRefreshTimer;
 
   final List<Map<String, dynamic>> _durationOptions = [
-    {'label': '30M', 'minutes': 30, 'apiRange': '30m'},
-    {'label': '1H', 'minutes': 60, 'apiRange': '1h'},
-    {'label': '2H', 'minutes': 120, 'apiRange': '2h'},
-    {'label': '4H', 'minutes': 240, 'apiRange': '4h'},
-    {'label': '8H', 'minutes': 480, 'apiRange': '8h'},
-    {'label': '16H', 'minutes': 960, 'apiRange': '16h'},
-    {'label': '1d', 'minutes': 1440, 'apiRange': '1d'},
-    {'label': '2d', 'minutes': 2880, 'apiRange': '2d'},
+    {'label': '3H', 'minutes': 180, 'apiRange': '3h'},
+    {'label': '6H', 'minutes': 360, 'apiRange': '6h'},
+    {'label': '12H', 'minutes': 720, 'apiRange': '12h'},
+    {'label': '24H', 'minutes': 1440, 'apiRange': '24h'},
+    {'label': '48H', 'minutes': 2880, 'apiRange': '48h'},
   ];
 
   @override
@@ -76,6 +74,7 @@ class _AlarmViewState extends State<ViewAlarm> {
     _selectedDurationMinutes = _durationOptions[0]['minutes'];
     _setupTimers();
     _updateChartData();
+    _startChartRefreshTimer();
   }
 
   void _onDurationSelected(int minutes, String apiRange) {
@@ -86,6 +85,7 @@ class _AlarmViewState extends State<ViewAlarm> {
     });
 
     _updateChartData();
+    _startChartRefreshTimer();
   }
 
   Future<void> _fetchChartDataFromController(String apiRange) async {
@@ -99,21 +99,12 @@ class _AlarmViewState extends State<ViewAlarm> {
 
       // Proses agregasi data berdasarkan rentang waktu
       if (_selectedDurationMinutes == 2880) {
-        // Hitung interval dalam menit (2 menit per jam)
+        // Hitung interval dalam menit (4 menit per jam)
         int intervalMinutes = 4 * (_selectedDurationMinutes ~/ 60);
         newChartData = _aggregateData(responseData, intervalMinutes);
-      } else if (_selectedDurationMinutes > 30) {
+      } else {
         int intervalMinutes = 2 * (_selectedDurationMinutes ~/ 60);
         newChartData = _aggregateData(responseData, intervalMinutes);
-      } else {
-        // Untuk 30 menit, tampilkan semua data tanpa agregasi
-        for (int i = 0; i < responseData.length; i++) {
-          final item = responseData[i] as Map<String, dynamic>;
-          double rsamVal = (item['RSAM'] as num?)?.toDouble() ?? 0.0;
-          String timestamp = item['Timestamp']?.toString() ?? '';
-          String timeLabel = _formatTimeLabel(timestamp);
-          newChartData.add(_ChartData(timeLabel, rsamVal));
-        }
       }
     } catch (e, stackTrace) {
       debugPrint('Error updating chart data: $e\nStackTrace: $stackTrace');
@@ -231,6 +222,16 @@ class _AlarmViewState extends State<ViewAlarm> {
     );
     final String apiRange = selectedOption['apiRange'];
     await _fetchChartDataFromController(apiRange); // Panggil metode baru
+  }
+
+  void _startChartRefreshTimer() {
+    _chartRefreshTimer?.cancel();
+    _chartRefreshTimer = Timer.periodic(const Duration(seconds: 30), (timer) {
+      if (mounted) {
+        print("Timer fired: Updating chart data for ${_selectedDurationMinutes}m filter...");
+        _updateChartData();
+      }
+    });
   }
 
   // --- LOGIKA VOLUME LISTENER ---
@@ -369,6 +370,7 @@ class _AlarmViewState extends State<ViewAlarm> {
     _dataTimer.cancel();
     _paramTimer.cancel();
     _snackbarCooldownTimer?.cancel();
+    _chartRefreshTimer?.cancel();
     super.dispose();
   }
 
