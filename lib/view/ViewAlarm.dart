@@ -6,7 +6,7 @@ import 'package:syncfusion_flutter_charts/charts.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
 import 'dart:async';
 import '../state/AppState.dart';
-
+import 'dart:math';
 
 class ViewAlarm extends StatefulWidget {
   const ViewAlarm({super.key});
@@ -20,8 +20,8 @@ class _AlarmViewState extends State<ViewAlarm> {
   final ControllerAlarm _controller = ControllerAlarm.instance;
   double rsamValue = 0.0;
   String result = '';
-  // bool isAlarmClosed = false;
-  // bool isLockMode = false;
+  String yAxisTitle = '';
+  String stream = 'Melab';
   bool isLoading = false; // Untuk loading navigasi
   bool _isChartLoading = false; // Untuk loading chart
   late Timer _dataTimer;
@@ -70,7 +70,9 @@ class _AlarmViewState extends State<ViewAlarm> {
   void _initializeApp() async {
     await _controller.init();
     if (!mounted) return;
-    setState(() => isDriveInitialized = true);
+    setState(() {
+      isDriveInitialized = true;
+    });
     _selectedDurationMinutes = _durationOptions[0]['minutes'];
     _setupTimers();
     _updateChartData();
@@ -79,6 +81,8 @@ class _AlarmViewState extends State<ViewAlarm> {
 
   void _onDurationSelected(int minutes, String apiRange) {
     if (!mounted) return;
+
+    _chartRefreshTimer?.cancel();
 
     setState(() {
       _selectedDurationMinutes = minutes;
@@ -90,21 +94,82 @@ class _AlarmViewState extends State<ViewAlarm> {
 
   Future<void> _fetchChartDataFromController(String apiRange) async {
     if (!mounted) return;
-    setState(() => _isChartLoading = true);
+    setState(() {
+      _isChartLoading = true;
+      chartData = [];
+    });
 
-    List<_ChartData> newChartData = [];
+    List<_ChartData> processedData = [];
     try {
       List<dynamic> responseData =
           await _controller.fetchChartDataRange(apiRange);
 
-      // Proses agregasi data berdasarkan rentang waktu
-      if (_selectedDurationMinutes == 2880) {
-        // Hitung interval dalam menit (4 menit per jam)
-        int intervalMinutes = 4 * (_selectedDurationMinutes ~/ 60);
-        newChartData = _aggregateData(responseData, intervalMinutes);
-      } else {
-        int intervalMinutes = 2 * (_selectedDurationMinutes ~/ 60);
-        newChartData = _aggregateData(responseData, intervalMinutes);
+      if (responseData.isNotEmpty) {
+        //FILTER DATA PENCILAN (OUTLIER)
+        List<dynamic> filteredResponseData;
+
+        List<double> rsamValues = responseData
+            .map((item) => (item['RSAM'] as num?)?.toDouble() ?? 0.0)
+            .toList();
+
+        double mean = rsamValues.reduce((a, b) => a + b) / rsamValues.length;
+
+        // Hitung simpangan baku (standard deviation).
+        double variance = rsamValues
+                .map((value) => pow(value - mean, 2))
+                .reduce((a, b) => a + b) /
+            rsamValues.length;
+        double stdDev = sqrt(variance);
+
+        // Tentukan batas atas. Data di atas batas ini adalah pencilan.
+        double outlierThreshold = mean + (3.0 * stdDev);
+
+        // Buat list baru hanya dengan data yang berada di bawah ambang batas.
+        filteredResponseData = responseData.where((item) {
+          double rsamVal = (item['RSAM'] as num?)?.toDouble() ?? 0.0;
+          return rsamVal < outlierThreshold;
+        }).toList();
+
+        if (filteredResponseData.isEmpty) {
+          if (!mounted) return;
+          setState(() {
+            chartData = [];
+            _isChartLoading = false;
+          });
+          return;
+        }
+
+        int intervalSeconds;
+        if (_selectedDurationMinutes == 2880) {
+          intervalSeconds = 480;
+        } else if (_selectedDurationMinutes == 1440) {
+          intervalSeconds = 240;
+        } else if (_selectedDurationMinutes == 720) {
+          intervalSeconds = 120;
+        } else if (_selectedDurationMinutes == 360) {
+          intervalSeconds = 60;
+        } else {
+          intervalSeconds = 30;
+        }
+
+        List<_ChartData> aggregatedData =
+            _aggregateData(filteredResponseData, intervalSeconds);
+        print(aggregatedData.length);
+
+        const int maxDataPoints = 720;
+        if (aggregatedData.length > maxDataPoints) {
+          List<_ChartData> downsampledData = [];
+          final double step = aggregatedData.length / maxDataPoints;
+          for (int i = 0; i < maxDataPoints; i++) {
+            int index = (i * step).floor();
+            if (index < aggregatedData.length) {
+              downsampledData.add(aggregatedData[index]);
+            }
+          }
+          processedData = downsampledData;
+        } else {
+          processedData = aggregatedData;
+        }
       }
     } catch (e, stackTrace) {
       debugPrint('Error updating chart data: $e\nStackTrace: $stackTrace');
@@ -119,72 +184,30 @@ class _AlarmViewState extends State<ViewAlarm> {
 
     if (!mounted) return;
     setState(() {
-      chartData = newChartData;
+      chartData = processedData;
+      yAxisTitle = 'RSAM Station ${stream}';
       _isChartLoading = false;
     });
   }
 
-// Fungsi agregasi data
-  List<_ChartData> _aggregateData(List<dynamic> rawData, int intervalMinutes) {
-    List<_ChartData> aggregatedData = [];
-    List<Map<String, dynamic>> dataList =
-        List<Map<String, dynamic>>.from(rawData);
-
-    // Urutkan data berdasarkan timestamp
-    dataList.sort((a, b) {
-      DateTime? timeA = _parseTimestamp(a['Timestamp']);
-      DateTime? timeB = _parseTimestamp(b['Timestamp']);
-      return timeA?.compareTo(timeB ?? DateTime.now()) ?? 0;
-    });
-
-    DateTime? currentGroupTime;
-    double currentMaxRsam = 0.0;
-    int pointsInGroup = 0;
-
-    for (var item in dataList) {
-      DateTime? timestamp = _parseTimestamp(item['Timestamp']);
-      double rsamVal = (item['RSAM'] as num?)?.toDouble() ?? 0.0;
-
-      if (timestamp == null) continue;
-
-      if (currentGroupTime == null) {
-        // Kelompok pertama
-        currentGroupTime = timestamp;
-        currentMaxRsam = rsamVal;
-        pointsInGroup = 1;
-      } else {
-        // Hitung selisih waktu dalam menit
-        int diffMinutes = timestamp.difference(currentGroupTime).inMinutes;
-
-        if (diffMinutes < intervalMinutes) {
-          // Masih dalam kelompok yang sama
-          if (rsamVal > currentMaxRsam) {
-            currentMaxRsam = rsamVal;
-          }
-          pointsInGroup++;
-        } else {
-          // Kelompok baru
-          aggregatedData.add(_ChartData(
-              _formatTimeLabel(currentGroupTime.toString()), currentMaxRsam));
-
-          // Reset untuk kelompok baru
-          currentGroupTime = timestamp;
-          currentMaxRsam = rsamVal;
-          pointsInGroup = 1;
-        }
+  String _formatDateTimeLabelForChart(String fullTimestamp) {
+    try {
+      if (fullTimestamp.isNotEmpty) {
+        final dateTime = DateTime.parse(fullTimestamp.replaceAll(' ', 'T'));
+        // Format menjadi "15/07 15:56"
+        final day = dateTime.day.toString().padLeft(2, '0');
+        final month = dateTime.month.toString().padLeft(2, '0');
+        final hour = dateTime.hour.toString().padLeft(2, '0');
+        final minute = dateTime.minute.toString().padLeft(2, '0');
+        return '$day/$month $hour:$minute';
       }
+    } catch (e) {
+      // Fallback jika terjadi error
+      return fullTimestamp;
     }
-
-    // Tambahkan kelompok terakhir
-    if (pointsInGroup > 0) {
-      aggregatedData.add(_ChartData(
-          _formatTimeLabel(currentGroupTime.toString()), currentMaxRsam));
-    }
-
-    return aggregatedData;
+    return fullTimestamp;
   }
 
-// Helper untuk parsing timestamp
   DateTime? _parseTimestamp(String? timestamp) {
     if (timestamp == null) return null;
     try {
@@ -193,6 +216,57 @@ class _AlarmViewState extends State<ViewAlarm> {
     } catch (e) {
       return null;
     }
+  }
+
+  List<_ChartData> _aggregateData(List<dynamic> rawData, int intervalSeconds) {
+    List<_ChartData> aggregatedData = [];
+    if (rawData.isEmpty) {
+      return aggregatedData;
+    }
+
+    List<Map<String, dynamic>> dataList =
+        List<Map<String, dynamic>>.from(rawData);
+
+    dataList.sort((a, b) {
+      DateTime? timeA = _parseTimestamp(a['Timestamp']);
+      DateTime? timeB = _parseTimestamp(b['Timestamp']);
+      return timeA?.compareTo(timeB ?? DateTime.now()) ?? 0;
+    });
+
+    DateTime? currentGroupTime = _parseTimestamp(dataList.first['Timestamp']);
+    if (currentGroupTime == null) return [];
+
+    double currentMaxRsam = 0.0;
+
+    for (var item in dataList) {
+      DateTime? timestamp = _parseTimestamp(item['Timestamp']);
+      if (timestamp == null) continue;
+
+      double rsamVal = (item['RSAM'] as num?)?.toDouble() ?? 0.0;
+
+      // Cek apakah data masih dalam grup waktu yang sama
+      if (timestamp.difference(currentGroupTime!).inSeconds < intervalSeconds) {
+        if (rsamVal > currentMaxRsam) {
+          currentMaxRsam = rsamVal;
+        }
+      } else {
+        // Grup lama selesai, tambahkan ke hasil
+        aggregatedData.add(_ChartData(
+            _formatDateTimeLabelForChart(currentGroupTime.toString()),
+            currentMaxRsam));
+
+        // Reset untuk grup baru
+        currentGroupTime = timestamp;
+        currentMaxRsam = rsamVal;
+      }
+    }
+
+    // Tambahkan grup data terakhir setelah loop selesai
+    aggregatedData.add(_ChartData(
+        _formatDateTimeLabelForChart(currentGroupTime.toString()),
+        currentMaxRsam));
+
+    return aggregatedData;
   }
 
 // Helper untuk format label waktu (HH:mm)
@@ -228,7 +302,8 @@ class _AlarmViewState extends State<ViewAlarm> {
     _chartRefreshTimer?.cancel();
     _chartRefreshTimer = Timer.periodic(const Duration(seconds: 30), (timer) {
       if (mounted) {
-        print("Timer fired: Updating chart data for ${_selectedDurationMinutes}m filter...");
+        print(
+            "Timer fired: Updating chart data for ${_selectedDurationMinutes}m filter...");
         _updateChartData();
       }
     });
@@ -331,7 +406,6 @@ class _AlarmViewState extends State<ViewAlarm> {
           rsamValue = value;
           result = value.toStringAsFixed(2);
         });
-
       } on TimeoutException catch (e, stackTrace) {
         debugPrint(
             'Error: Data fetching timed out after 20 seconds. $e\nStackTrace: $stackTrace');
@@ -507,18 +581,18 @@ class _AlarmViewState extends State<ViewAlarm> {
         builder: (context, isLockMode, child) {
           final gradientColors = isLockMode
               ? [
-            const Color(0xFFA02D2D),
-            const Color(0xFF1E1E1E),
-            const Color(0xFF1E1E1E)
-          ]
+                  const Color(0xFFA02D2D),
+                  const Color(0xFF1E1E1E),
+                  const Color(0xFF1E1E1E)
+                ]
               : [
-            const Color(0xFF665C3C),
-            const Color(0xFF1E1E1E),
-            const Color(0xFF1E1E1E)
-          ];
+                  const Color(0xFF665C3C),
+                  const Color(0xFF1E1E1E),
+                  const Color(0xFF1E1E1E)
+                ];
 
           final textColor =
-          isLockMode ? const Color(0xFFE41D1D) : const Color(0xFFF2C94C);
+              isLockMode ? const Color(0xFFE41D1D) : const Color(0xFFF2C94C);
 
           return Container(
             decoration: BoxDecoration(
@@ -567,9 +641,10 @@ class _AlarmViewState extends State<ViewAlarm> {
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           _buildRsamDisplay(textColor),
-                          const SizedBox(height: 20),
+                          const SizedBox(height: 10),
                           _buildDurationSelector(),
                           const SizedBox(height: 20),
+                          _buildChartTitle(),
                           _buildChartArea(),
                         ],
                       ),
@@ -588,8 +663,7 @@ class _AlarmViewState extends State<ViewAlarm> {
               ),
             ),
           );
-        }
-    );
+        });
   }
 
   Widget _buildDurationSelector() {
@@ -642,6 +716,24 @@ class _AlarmViewState extends State<ViewAlarm> {
     );
   }
 
+  Widget _buildChartTitle() {
+    // Gunakan Padding untuk memberi jarak dari tepi kanan layar
+    return Padding(
+      padding: const EdgeInsets.only(right: 16.0),
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: Text(
+          yAxisTitle, // Variabel state yang sudah Anda punya
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.bold,
+            fontSize: 14,
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildChartArea() {
     if (_isChartLoading) {
       return const SizedBox(
@@ -657,6 +749,7 @@ class _AlarmViewState extends State<ViewAlarm> {
                 style: TextStyle(color: Colors.white54))),
       );
     }
+
     return Container(
       height: 300,
       padding: const EdgeInsets.symmetric(horizontal: 8.0),
