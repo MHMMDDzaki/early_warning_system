@@ -76,10 +76,6 @@ class ControllerAlarm {
         Uri.parse('$baseUrl/api/rsamv2-latest'),
         headers: {'Accept': 'application/json'},
       );
-      //
-      // final jsonData = jsonDecode(jsonString);
-      // _modelAlarm = ModelAlarm.fromJson(jsonData);
-      // return _modelAlarm!.rsamValue;
 
       if (response.statusCode == 200) {
         final jsonData = jsonDecode(response.body);
